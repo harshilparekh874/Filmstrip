@@ -29,9 +29,12 @@ const getTableFromUrl = (url: string): string => {
 
 const supabaseRequest = async (method: string, url: string, body?: any) => {
   const table = getTableFromUrl(url);
+  const token = localStorage.getItem('supabase.auth.token');
+  
+  // CRITICAL: Supabase requires BOTH apikey and Authorization headers
   const headers: Record<string, string> = {
     'apikey': SUPABASE_KEY,
-    'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`,
+    'Authorization': `Bearer ${token || SUPABASE_KEY}`,
     'Content-Type': 'application/json',
     'Prefer': 'return=representation'
   };
@@ -43,18 +46,17 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   if (method === 'GET') {
     const params = new URLSearchParams();
     
-    // Handle "Get by ID" from URL path: /users/uuid or /challenges/uuid
+    // Handle "Get by ID" from URL path
     const pathParts = url.replace(/^\/+/, '').split('/');
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
     }
 
-    // Handle user-based filtering
     if (body?.userId) {
         if (table === 'users') {
+            // FIX: Use 'id' for users table, 'userId' for others
             params.append('id', `eq.${body.userId}`);
         } else if (table === 'friendships') {
-            // Social requests can be where I am the sender OR recipient
             if (url.includes('pending')) {
                 params.append('friendId', `eq.${body.userId}`);
                 params.append('status', `eq.PENDING`);
@@ -62,7 +64,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
                 params.append('userId', `eq.${body.userId}`);
                 params.append('status', `eq.PENDING`);
             } else {
-                // Friends list: fetch all where I am involved (logic simplified for MVP)
                 params.append('or', `(userId.eq.${body.userId},friendId.eq.${body.userId})`);
                 params.append('status', `eq.ACCEPTED`);
             }
@@ -77,9 +78,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     if (queryString) targetUrl += `?${queryString}`;
   }
 
-  // POST / PUT / DELETE Handling
   if (body && method !== 'GET') {
-    // Column renaming for the users table
     const cleanedBody = { ...body };
     if (table === 'users' && cleanedBody.userId) {
         cleanedBody.id = cleanedBody.userId;
@@ -87,10 +86,11 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     }
     options.body = JSON.stringify(cleanedBody);
 
-    // Add filter for UPDATE (PUT) or DELETE
     if (method === 'PUT' || method === 'PATCH') {
         const id = url.split('/').pop();
-        targetUrl += `?id=eq.${id}`;
+        // If updating a user profile, ensure we use the 'id' column
+        const column = table === 'users' ? 'id' : 'id'; 
+        targetUrl += `?${column}=eq.${id}`;
     }
   }
 
@@ -98,11 +98,9 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const response = await fetch(targetUrl, options);
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
-      
       if (err.message?.includes('relation') && err.message?.includes('does not exist')) {
-          alert(`DATABASE ERROR: Table "${table}" missing.\n\nRun the FULL SQL script from the README to create all Social & Battle tables.`);
+          alert(`DATABASE ERROR: Table "${table}" missing. Please run the SQL script from the README.`);
       }
-      
       throw new Error(err.message || 'Database error.');
     }
     return response.json();
@@ -121,35 +119,63 @@ export const cloudClient = {
   post: async (url: string, body: any) => {
     if (!isProduction) return cloudServerMock.handleRequest('POST', url, body);
     
-    // Auth logic routes directly to Supabase Auth API
+    // AUTH: OTP REQUEST
     if (url === '/auth/otp') {
         const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
             method: 'POST',
-            headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+            headers: { 
+                'apikey': SUPABASE_KEY, 
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json' 
+            },
             body: JSON.stringify({ email: body.email })
         });
-        return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || "OTP Failed"); });
+        return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || r.message || "OTP Failed"); });
     }
 
+    // AUTH: VERIFY OTP
     if (url === '/auth/verify') {
-        const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-            method: 'POST',
-            headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: body.email, token: body.code, type: 'signup' })
-        });
+        const verify = async (type: string) => {
+            return fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+                method: 'POST',
+                headers: { 
+                    'apikey': SUPABASE_KEY, 
+                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ email: body.email, token: body.code, type })
+            });
+        };
+
+        // Attempt 'email' type (standard for OTP/MagicLink)
+        let response = await verify('email');
+        if (!response.ok) {
+            // Fallback to 'signup' type
+            const secondResponse = await verify('signup');
+            if (secondResponse.ok) response = secondResponse;
+        }
+
         const res = await response.json();
-        if (!response.ok) throw new Error(res.msg || "Invalid code.");
+        if (!response.ok) {
+            console.error("Verification failed:", res);
+            throw new Error(res.msg || res.error_description || "Invalid code (403). Check your Supabase API keys.");
+        }
+
         localStorage.setItem('supabase.auth.token', res.access_token);
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
-    // Map social actions to the correct table/logic
+    // SOCIAL MAPPING
     if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
         return fetch(`${SUPABASE_URL}/rest/v1/friendships?${idQuery}`, {
             method: 'PATCH',
-            headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`, 'Content-Type': 'application/json' },
+            headers: { 
+                'apikey': SUPABASE_KEY, 
+                'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`,
+                'Content-Type': 'application/json' 
+            },
             body: JSON.stringify({ status: 'ACCEPTED' })
         });
     }
@@ -159,7 +185,7 @@ export const cloudClient = {
 
   put: async (url: string, body: any) => {
     if (!isProduction) return cloudServerMock.handleRequest('PUT', url, body);
-    return supabaseRequest('PATCH', url, body); // Supabase uses PATCH for updates
+    return supabaseRequest('PATCH', url, body);
   },
 
   delete: async (url: string) => {
@@ -171,7 +197,10 @@ export const cloudClient = {
     
     return fetch(`${SUPABASE_URL}/rest/v1/${table}?movieId=eq.${movieId}&userId=eq.${userId}`, {
         method: 'DELETE',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}` }
+        headers: { 
+            'apikey': SUPABASE_KEY, 
+            'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}` 
+        }
     });
   }
 };
