@@ -1,32 +1,29 @@
 
 import { cloudClient } from '../api/cloudClient';
-import { User, SocialChallenge } from '../../core/types/models';
+import { SocialChallenge } from '../../core/types/models';
 
 export const socialRepo = {
-  getFriends: async (userId: string): Promise<User[]> => {
-    const rawFriends = await cloudClient.get('/social/friends', { userId }) as any[];
-    if (!Array.isArray(rawFriends)) return [];
+  getFriendIds: async (userId: string): Promise<string[]> => {
+    const res = await cloudClient.get('/social/friends', { userId }) as any[];
+    if (!Array.isArray(res)) return [];
     
-    // Normalize response: Mock DB returns full users, Supabase returns friendship objects if joined incorrectly
-    // But our current cloudClient GET /social/friends with ACCEPTED filter should return user objects directly
-    // based on our manual matching in cloudClient.
-    return rawFriends as User[];
+    // In an accepted friendship, 'userId' or 'friendId' could be the other person.
+    return res.map(f => f.userId === userId ? f.friendId : f.userId).filter(Boolean);
   },
 
-  getPendingRequests: async (userId: string): Promise<{ id: string }[]> => {
+  getPendingRequestIds: async (userId: string): Promise<string[]> => {
     const res = await cloudClient.get('/social/requests/pending', { userId }) as any[];
     if (!Array.isArray(res)) return [];
     
-    // In a pending request, 'userId' is the sender. 
-    // We return their ID so the recipient can look them up in the allUsers list.
-    return res.map(f => ({
-      id: f.userId || f.id
-    })).filter(r => r.id);
+    // In a pending request sent TO me, 'userId' is the sender.
+    return res.map(f => f.userId || f.id).filter(Boolean);
   },
 
-  getOutgoingRequests: async (userId: string): Promise<string[]> => {
+  getOutgoingRequestIds: async (userId: string): Promise<string[]> => {
     const res = await cloudClient.get('/social/requests/outgoing', { userId }) as any[];
     if (!Array.isArray(res)) return [];
+    
+    // In an outgoing request sent BY me, 'friendId' is the person I'm following.
     return res.map(f => typeof f === 'string' ? f : f.friendId).filter(Boolean);
   },
 

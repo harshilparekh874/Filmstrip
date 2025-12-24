@@ -38,38 +38,41 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   fetchSocial: async (userId: string) => {
     set({ isLoading: true });
     try {
-      // Parallel fetch of all social data
-      const [friends, allUsers, activityFeed, rawPending, outgoingRequests, challenges] = await Promise.all([
-        socialRepo.getFriends(userId).catch(() => []),
+      // Parallel fetch of all raw IDs and global user list
+      const [friendIds, allUsers, activityFeed, pendingIds, outgoingIds, challenges] = await Promise.all([
+        socialRepo.getFriendIds(userId).catch(() => []),
         userRepo.getUsers().catch(() => []),
         activityRepo.getActivityFeed(userId).catch(() => []),
-        socialRepo.getPendingRequests(userId).catch(() => []),
-        socialRepo.getOutgoingRequests(userId).catch(() => []),
+        socialRepo.getPendingRequestIds(userId).catch(() => []),
+        socialRepo.getOutgoingRequestIds(userId).catch(() => []),
         socialRepo.getChallenges(userId).catch(() => [])
       ]);
       
       const usersList = Array.isArray(allUsers) ? allUsers : [];
       
-      // ENRICHMENT: Map the raw IDs from pending requests to actual User objects
-      const enrichedPending = (Array.isArray(rawPending) ? rawPending : []).map(req => {
-          const sender = usersList.find(u => u.id === req.id);
+      // HYDRATION: Map IDs to full User objects
+      const friends = friendIds.map(id => usersList.find(u => u.id === id)).filter(Boolean) as User[];
+      const outgoingRequests = outgoingIds;
+      
+      const pendingRequests = pendingIds.map(id => {
+          const sender = usersList.find(u => u.id === id);
           return {
-              id: req.id,
+              id: id,
               from: sender || { 
-                id: req.id, 
+                id: id, 
                 name: 'New Connection', 
-                avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${req.id}`,
+                avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${id}`,
                 username: 'user'
               } as User
           };
       });
       
       set({ 
-        friends: Array.isArray(friends) ? friends : [], 
+        friends, 
         allUsers: usersList, 
         activityFeed: Array.isArray(activityFeed) ? activityFeed : [], 
-        pendingRequests: enrichedPending, 
-        outgoingRequests: Array.isArray(outgoingRequests) ? outgoingRequests : [], 
+        pendingRequests, 
+        outgoingRequests, 
         challenges: Array.isArray(challenges) ? challenges : [], 
         isLoading: false 
       });
@@ -82,7 +85,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   sendRequest: async (userId: string, friendId: string) => {
     if (get().requestingIds.has(friendId)) return;
     
-    // Optimistic Update: Mark as sent immediately to avoid double clicks
     set(state => ({ 
         requestingIds: new Set(state.requestingIds).add(friendId),
         outgoingRequests: Array.from(new Set([...state.outgoingRequests, friendId]))
@@ -90,21 +92,16 @@ export const useSocialStore = create<SocialState>((set, get) => ({
     
     try {
         await socialRepo.addFriendRequest(userId, friendId);
-        // Refresh social state to sync with server
         await get().fetchSocial(userId);
     } catch (err: any) {
-        // If it's a conflict error (already exists), we don't rollback
         if (err.message?.includes('duplicate key')) {
             await get().fetchSocial(userId);
             return;
         }
-
         console.error("Failed to send request:", err);
-        // Rollback only on real network/logic failures
         set(state => ({
             outgoingRequests: state.outgoingRequests.filter(id => id !== friendId)
         }));
-        alert(`Follow Failed: ${err.message || 'Check connection'}`);
     } finally {
         set(state => {
             const next = new Set(state.requestingIds);

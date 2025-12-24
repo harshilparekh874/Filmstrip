@@ -42,32 +42,31 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
   if (method === 'GET') {
     const params = new URLSearchParams();
-    const pathParts = url.replace(/^\/+/, '').split('/');
     
-    if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
-        params.append('id', `eq.${pathParts[1]}`);
-    }
-
-    if (body?.userId) {
+    // Explicitly handle friendship queries with correct column casing
+    if (body?.userId && table === 'friendships') {
+        if (url.includes('pending')) {
+            params.append('friendId', `eq.${body.userId}`);
+            params.append('status', `eq.PENDING`);
+        } else if (url.includes('outgoing')) {
+            params.append('userId', `eq.${body.userId}`);
+            params.append('status', `eq.PENDING`);
+        } else {
+            // General friends list (Accepted)
+            params.append('or', `(userId.eq.${body.userId},friendId.eq.${body.userId})`);
+            params.append('status', `eq.ACCEPTED`);
+        }
+    } else if (body?.userId) {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
-        } else if (table === 'friendships') {
-            // Strictly match the column names defined in the SQL setup
-            if (url.includes('pending')) {
-                params.append('friendId', `eq.${body.userId}`);
-                params.append('status', `eq.PENDING`);
-            } else if (url.includes('outgoing')) {
-                params.append('userId', `eq.${body.userId}`);
-                params.append('status', `eq.PENDING`);
-            } else {
-                params.append('or', `(userId.eq.${body.userId},friendId.eq.${body.userId})`);
-                params.append('status', `eq.ACCEPTED`);
-            }
-        } else if (table === 'challenges') {
-            params.append('or', `(creatorId.eq.${body.userId},recipientId.eq.${body.userId})`);
         } else {
             params.append('userId', `eq.${body.userId}`);
         }
+    }
+
+    const pathParts = url.replace(/^\/+/, '').split('/');
+    if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?') && !body?.userId) {
+        params.append('id', `eq.${pathParts[1]}`);
     }
 
     const queryString = params.toString();
@@ -102,11 +101,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
               return { success: true, message: 'Existing request' };
           }
       }
-
-      if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
-          alert(`DATABASE ERROR: Resource "${table}" not found.`);
-      }
-      
       throw new Error(msg);
     }
     return response.json();
