@@ -14,7 +14,7 @@ interface AuthState {
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<{ isNewUser: boolean; userId?: string }>;
   login: (userId: string) => Promise<boolean>;
-  signup: (userData: Partial<User>) => Promise<void>;
+  signup: (userData: any) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -65,16 +65,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signup: async (userData: Partial<User>) => {
+  signup: async (userData: any) => {
     const email = get().emailContext;
     const userId = get().userIdContext;
     
+    // CRITICAL: Filter out fields that don't belong in the database 'users' table
+    const { code, email: discardedEmail, ...profileFields } = userData;
+
     const finalData = { 
-        ...userData, 
+        ...profileFields, 
         id: userId,
-        email,
+        email: email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
     };
+
+    // Remove any leftover temporary UI fields
+    delete (finalData as any).movieSearch;
+    delete (finalData as any).movieResults;
 
     const results = await cloudClient.post('/auth/signup', finalData) as User[];
     const user = Array.isArray(results) ? results[0] : results;

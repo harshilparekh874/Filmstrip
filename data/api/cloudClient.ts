@@ -16,7 +16,6 @@ const isProduction = !!(SUPABASE_URL && SUPABASE_KEY);
 const getTableFromUrl = (url: string): string => {
   const path = url.replace(/^\/+/, '').split('?')[0].toLowerCase();
   
-  // Specific internal route mapping
   if (path.includes('auth/signup')) return 'users';
   if (path.startsWith('users')) return 'users';
   if (path.startsWith('entries')) return 'entries';
@@ -31,7 +30,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   const table = getTableFromUrl(url);
   const token = localStorage.getItem('supabase.auth.token');
   
-  // CRITICAL: Supabase requires BOTH apikey and Authorization headers
   const headers: Record<string, string> = {
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${token || SUPABASE_KEY}`,
@@ -46,7 +44,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const params = new URLSearchParams();
     const pathParts = url.replace(/^\/+/, '').split('/');
     
-    // Handle "Get by ID" from URL path (e.g., /users/123)
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
     }
@@ -78,16 +75,22 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
   if (body && method !== 'GET') {
     const cleanedBody = { ...body };
-    // Ensure we map 'userId' to 'id' if we are writing to the users table
-    if (table === 'users' && cleanedBody.userId && !cleanedBody.id) {
+    
+    // Fix: Supabase Auth users map to 'id' in the public users table
+    if (table === 'users' && cleanedBody.userId) {
         cleanedBody.id = cleanedBody.userId;
         delete cleanedBody.userId;
     }
+    
     options.body = JSON.stringify(cleanedBody);
 
     if (method === 'PUT' || method === 'PATCH') {
-        const id = url.split('/').pop();
-        targetUrl += `?id=eq.${id}`;
+        // Extract ID from the end of the URL
+        const parts = url.split('/');
+        const id = parts[parts.length - 1];
+        if (id && id !== table) {
+            targetUrl += `?id=eq.${id}`;
+        }
     }
   }
 
@@ -101,7 +104,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
           throw new Error(`Table "${table}" missing.`);
       }
       
-      throw new Error(err.message || 'Database error.');
+      throw new Error(err.message || `API Error ${response.status}`);
     }
     return response.json();
   } catch (err: any) {
@@ -119,7 +122,6 @@ export const cloudClient = {
   post: async (url: string, body: any) => {
     if (!isProduction) return cloudServerMock.handleRequest('POST', url, body);
     
-    // Handle OTP Flow specifically
     if (url === '/auth/otp') {
         const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
             method: 'POST',
@@ -133,7 +135,6 @@ export const cloudClient = {
         return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || r.message || "OTP Failed"); });
     }
 
-    // Handle Verification Flow specifically
     if (url === '/auth/verify') {
         const verify = async (type: string) => {
             return fetch(`${SUPABASE_URL}/auth/v1/verify`, {
@@ -162,7 +163,6 @@ export const cloudClient = {
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
-    // Map custom social routes
     if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
@@ -177,7 +177,6 @@ export const cloudClient = {
         });
     }
 
-    // Default to the REST table request
     return supabaseRequest('POST', url, body);
   },
 
