@@ -71,16 +71,15 @@ export const ChallengeGame: React.FC = () => {
     resolveMovies();
   }, [localChallenge, movies, seedMovies]);
 
-  // 4. Polling for Turn Updates (Stable dependency)
+  // 4. Polling for Turn Updates (Crucial for multiplayer sync)
   useEffect(() => {
     if (!user?.id || !id) return;
+    
     const interval = setInterval(() => {
-      const current = challenges.find(c => c.id === id);
-      // Only poll if it's NOT our turn and game is ongoing
-      if (current && current.turnUserId !== user.id && current.status !== 'COMPLETED') {
+        // Always poll if game is ongoing to catch state changes
         fetchSocial(user.id);
-      }
-    }, 6000);
+    }, 5000);
+
     return () => clearInterval(interval);
   }, [user?.id, id, fetchSocial]);
 
@@ -123,6 +122,7 @@ export const ChallengeGame: React.FC = () => {
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
     if (!id || !user || !localChallenge) return;
     
+    // Switch turn to opponent
     await updateChallenge(id, {
       status: isFinal ? 'COMPLETED' : 'ACTIVE',
       turnUserId: opponentId, 

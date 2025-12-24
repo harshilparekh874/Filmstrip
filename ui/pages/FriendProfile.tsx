@@ -71,28 +71,29 @@ export const FriendProfile: React.FC = () => {
       
       let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
       
-      // If combined history is too small, supplement from the store or TMDB popular
-      if (poolIds.length < gameSize) {
-          const fillerPool = storeMovies.length > 0 ? storeMovies : await movieRepo.getAllMovies();
-          const fillerIds = fillerPool.map(m => m.id).filter(id => !poolIds.includes(id));
-          poolIds = [...poolIds, ...fillerIds.slice(0, gameSize - poolIds.length)];
-      }
+      // Supplement pool
+      const fillerPool = storeMovies.length > 0 ? storeMovies : await movieRepo.getAllMovies();
+      const fillerIds = fillerPool.map(m => m.id).filter(id => !poolIds.includes(id));
+      poolIds = [...poolIds, ...fillerIds.slice(0, Math.max(0, gameSize - poolIds.length))];
       
       const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
+      // CRITICAL FIX: Explicitly set turnUserId and status for Supabase compatibility
       const challenge = await createChallenge({
         creatorId: currentUser.id,
         recipientId: friend.id,
+        turnUserId: currentUser.id, // Creator starts
         type: gameType,
         size: gameSize,
         movieIds: challengeIds,
-        status: 'PENDING'
+        status: 'ACTIVE', // Jump straight to active so recipient can see it
+        timestamp: Date.now()
       });
 
       navigate(`/social/challenge/${challenge.id}`);
     } catch (err) {
       console.error("Challenge creation failed", err);
-      alert("Error starting challenge. Please check your connection.");
+      alert("Error starting challenge. This can happen if the database constraints are not met.");
     } finally {
       setIsCreating(false);
       setShowModal(false);
