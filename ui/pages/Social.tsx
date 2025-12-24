@@ -14,6 +14,7 @@ export const Social: React.FC = () => {
     outgoingRequests = [],
     activityFeed = [], 
     challenges = [],
+    requestingIds = new Set(),
     fetchSocial, 
     sendRequest, 
     acceptRequest,
@@ -167,6 +168,8 @@ export const Social: React.FC = () => {
           {filteredDiscovery.length > 0 ? (
             filteredDiscovery.slice(0, 6).map(user => {
               const isRequested = outgoingRequests?.includes(user.id);
+              const isProcessing = requestingIds.has(user.id);
+
               return (
                 <div key={user.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex items-center gap-3">
@@ -181,9 +184,10 @@ export const Social: React.FC = () => {
                   ) : (
                     <button 
                       onClick={() => currentUser && sendRequest(currentUser.id, user.id)}
-                      className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-700 transition"
+                      disabled={isProcessing}
+                      className="px-4 py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
                     >
-                      Follow
+                      {isProcessing ? 'Sending...' : 'Follow'}
                     </button>
                   )}
                 </div>

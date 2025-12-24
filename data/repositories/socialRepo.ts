@@ -8,11 +8,18 @@ export const socialRepo = {
   },
 
   getPendingRequests: async (userId: string): Promise<{ id: string, from: User }[]> => {
-    return await cloudClient.get('/social/requests/pending', { userId }) as any[];
+    const res = await cloudClient.get('/social/requests/pending', { userId }) as any[];
+    // Supabase returns an array of friendship objects, we need to map to the UI format
+    return res.map(f => ({
+      id: f.userId, // The ID of the person who sent it
+      from: f.from || { id: f.userId, name: 'Unknown User' } // Fallback if join didn't happen
+    }));
   },
 
   getOutgoingRequests: async (userId: string): Promise<string[]> => {
-    return await cloudClient.get('/social/requests/outgoing', { userId }) as unknown as string[];
+    const res = await cloudClient.get('/social/requests/outgoing', { userId }) as any[];
+    // Supabase returns objects [{friendId: '...'}], we need just the strings
+    return Array.isArray(res) ? res.map(f => f.friendId) : [];
   },
 
   addFriendRequest: async (userId: string, friendId: string): Promise<void> => {

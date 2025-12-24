@@ -13,6 +13,7 @@ interface SocialState {
   activityFeed: ActivityEvent[];
   challenges: SocialChallenge[];
   isLoading: boolean;
+  requestingIds: Set<string>; // Track in-flight requests
 
   fetchSocial: (userId: string) => Promise<void>;
   sendRequest: (userId: string, friendId: string) => Promise<void>;
@@ -32,6 +33,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   activityFeed: [],
   challenges: [],
   isLoading: false,
+  requestingIds: new Set(),
 
   fetchSocial: async (userId: string) => {
     set({ isLoading: true });
@@ -61,9 +63,24 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   sendRequest: async (userId: string, friendId: string) => {
-    await socialRepo.addFriendRequest(userId, friendId);
-    const outgoingRequests = await socialRepo.getOutgoingRequests(userId);
-    set({ outgoingRequests: Array.isArray(outgoingRequests) ? outgoingRequests : [] });
+    // Prevent double clicking
+    if (get().requestingIds.has(friendId)) return;
+    
+    set(state => ({ requestingIds: new Set(state.requestingIds).add(friendId) }));
+    
+    try {
+        await socialRepo.addFriendRequest(userId, friendId);
+        const outgoingRequests = await socialRepo.getOutgoingRequests(userId);
+        set({ outgoingRequests: Array.isArray(outgoingRequests) ? outgoingRequests : [] });
+    } catch (err) {
+        console.error("Failed to send request:", err);
+    } finally {
+        set(state => {
+            const next = new Set(state.requestingIds);
+            next.delete(friendId);
+            return { requestingIds: next };
+        });
+    }
   },
 
   acceptRequest: async (userId: string, senderId: string) => {
