@@ -52,7 +52,6 @@ export const ChallengeGame: React.FC = () => {
       const missingIds = localChallenge.movieIds.filter(mId => !movies.find(m => m.id === mId));
       
       if (missingIds.length > 0) {
-        console.log(`[Game] Fetching ${missingIds.length} missing movies...`);
         try {
           const fetched = await Promise.all(
             missingIds.map(mId => movieRepo.getMovieById(mId))
@@ -61,9 +60,11 @@ export const ChallengeGame: React.FC = () => {
         } catch (err) {
           console.error("Failed to fetch game movies", err);
           setError("Failed to load movie data.");
+        } finally {
+          setLoading(false);
         }
       } else {
-        // All movies present
+        // All movies present in memory store
         setLoading(false);
       }
     };
@@ -75,11 +76,11 @@ export const ChallengeGame: React.FC = () => {
   useEffect(() => {
     if (!user?.id || !id) return;
     const interval = setInterval(() => {
-      // Only poll if it's NOT my turn
-      if (localChallenge && localChallenge.turnUserId !== user.id) {
+      // Only poll if it's NOT my turn to check for opponent's move
+      if (localChallenge && localChallenge.turnUserId !== user.id && localChallenge.status !== 'COMPLETED') {
         fetchSocial(user.id);
       }
-    }, 3000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [user?.id, id, localChallenge, fetchSocial]);
 
@@ -150,7 +151,13 @@ export const ChallengeGame: React.FC = () => {
     handleNextTurn({ tierAssignments: nextAssignments }, isFinal);
   };
 
-  if (error) return <div className="p-20 text-center text-red-500 font-bold">{error}</div>;
+  if (error) return (
+    <div className="p-20 text-center bg-white dark:bg-slate-900 rounded-[3rem] border border-red-100 dark:border-red-900/30">
+      <h2 className="text-xl font-bold text-red-500">Battle Sync Failed</h2>
+      <p className="text-slate-500 dark:text-slate-400 mt-2">{error}</p>
+      <button onClick={() => navigate('/social')} className="mt-6 text-indigo-600 font-bold uppercase text-xs tracking-widest">Return to Social</button>
+    </div>
+  );
 
   if (loading || !localChallenge) return (
     <div className="flex flex-col h-[70vh] items-center justify-center gap-4">
@@ -158,6 +165,57 @@ export const ChallengeGame: React.FC = () => {
         <p className="text-slate-400 font-black uppercase tracking-widest text-[10px] animate-pulse">Syncing Battle Data...</p>
     </div>
   );
+
+  // If completed, show final state
+  if (localChallenge.status === 'COMPLETED') {
+      return (
+          <div className="space-y-10 pb-32 animate-in fade-in duration-500 text-center">
+              <header>
+                <h1 className="text-4xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Battle Finalized!</h1>
+                <p className="text-slate-500 dark:text-slate-400 mt-2">The results are in for your {localChallenge.type.toLowerCase()}.</p>
+              </header>
+
+              {localChallenge.type === 'BRACKET' ? (
+                  <div className="max-w-md mx-auto bg-white dark:bg-slate-900 p-10 rounded-[3.5rem] shadow-2xl border border-indigo-100 dark:border-indigo-900/30">
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600 dark:text-indigo-400 mb-6">The Champion</p>
+                      {(() => {
+                          const winner = movies.find(m => m.id === localChallenge.results.finalWinner);
+                          return winner ? (
+                              <div className="space-y-6">
+                                  <img src={winner.posterUrl} className="w-48 mx-auto rounded-3xl shadow-xl border-4 border-indigo-600" />
+                                  <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">{winner.title}</h2>
+                                  <p className="text-slate-500">{winner.year}</p>
+                              </div>
+                          ) : <p>Loading winner...</p>;
+                      })()}
+                  </div>
+              ) : (
+                  <div className="max-w-2xl mx-auto space-y-4">
+                      {tiers.map(tier => (
+                          <div key={tier} className="flex gap-4 p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800">
+                              <div className={`w-12 h-12 flex items-center justify-center rounded-2xl font-black text-xl text-white ${
+                                tier === 'S' ? 'bg-red-500' : tier === 'A' ? 'bg-orange-500' : tier === 'B' ? 'bg-yellow-400' : 'bg-slate-400'
+                              }`}>{tier}</div>
+                              <div className="flex flex-wrap gap-2">
+                                  {tierAssignments[tier].map((mId: string) => {
+                                      const movie = movies.find(m => m.id === mId);
+                                      return movie ? <img key={mId} src={movie.posterUrl} className="h-12 rounded shadow" /> : null;
+                                  })}
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              )}
+
+              <button 
+                onClick={() => navigate('/social')}
+                className="px-10 py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-3xl hover:bg-indigo-700 transition shadow-xl"
+              >
+                Back to Feed
+              </button>
+          </div>
+      );
+  }
 
   return (
     <div className="space-y-10 pb-32 animate-in fade-in duration-300">
@@ -181,7 +239,7 @@ export const ChallengeGame: React.FC = () => {
             <div className="text-2xl">{opponent?.avatarUrl && <img src={opponent.avatarUrl} className={`w-8 h-8 rounded-full border-2 ${isMyTurn ? 'border-white/20' : 'border-slate-300 dark:border-slate-700'}`} />}</div>
             <div>
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Vs</p>
-                <p className="font-bold">{opponent?.name || 'Friend'}</p>
+                <p className="font-bold">{opponent?.firstName || 'Friend'}</p>
             </div>
         </div>
       </header>

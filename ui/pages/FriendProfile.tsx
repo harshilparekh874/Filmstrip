@@ -15,7 +15,7 @@ export const FriendProfile: React.FC = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuthStore();
   const { createChallenge } = useSocialStore();
-  const { seedMovies } = useMovieStore();
+  const { movies: storeMovies, seedMovies } = useMovieStore();
 
   const [friend, setFriend] = useState<User | null>(null);
   const [entries, setEntries] = useState<UserMovieEntry[]>([]);
@@ -23,7 +23,6 @@ export const FriendProfile: React.FC = () => {
   const [favMovie, setFavMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
   
-  const [battlePoolIds, setBattlePoolIds] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [gameType, setGameType] = useState<ChallengeType>('BRACKET');
   const [gameSize, setGameSize] = useState<10 | 20 | 50>(10);
@@ -35,26 +34,15 @@ export const FriendProfile: React.FC = () => {
       setLoading(true);
       
       try {
-        const [u, e, m, ...topPages] = await Promise.all([
+        const [u, e, m] = await Promise.all([
           userRepo.getUserById(id),
           movieRepo.getUserEntries(id),
           movieRepo.getAllMovies(),
-          tmdbApi.getTopRatedMovies(1).catch(() => []),
-          tmdbApi.getTopRatedMovies(2).catch(() => []),
-          tmdbApi.getTopRatedMovies(3).catch(() => []),
-          tmdbApi.getTopRatedMovies(4).catch(() => []),
-          tmdbApi.getTopRatedMovies(5).catch(() => []),
         ]);
 
         setFriend(u || null);
         setEntries(Array.isArray(e) ? e : []);
         setMovies(Array.isArray(m) ? m : []);
-
-        const allTopMovies = topPages.flat();
-        if (allTopMovies.length > 0) {
-            seedMovies(allTopMovies); 
-            setBattlePoolIds(allTopMovies.map(movie => movie.id));
-        }
 
         if (u?.favoriteMovieId) {
           const fm = await movieRepo.getMovieById(u.favoriteMovieId);
@@ -67,7 +55,7 @@ export const FriendProfile: React.FC = () => {
       }
     };
     loadData();
-  }, [id, seedMovies]);
+  }, [id]);
 
   const handleStartChallenge = async () => {
     if (!currentUser || !friend) return;
@@ -83,9 +71,11 @@ export const FriendProfile: React.FC = () => {
       
       let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
       
+      // If combined history is too small, supplement from the store or TMDB popular
       if (poolIds.length < gameSize) {
-          const filler = battlePoolIds.filter(id => !poolIds.includes(id));
-          poolIds = [...poolIds, ...filler.slice(0, gameSize - poolIds.length)];
+          const fillerPool = storeMovies.length > 0 ? storeMovies : await movieRepo.getAllMovies();
+          const fillerIds = fillerPool.map(m => m.id).filter(id => !poolIds.includes(id));
+          poolIds = [...poolIds, ...fillerIds.slice(0, gameSize - poolIds.length)];
       }
       
       const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
@@ -102,7 +92,7 @@ export const FriendProfile: React.FC = () => {
       navigate(`/social/challenge/${challenge.id}`);
     } catch (err) {
       console.error("Challenge creation failed", err);
-      alert("Error starting challenge.");
+      alert("Error starting challenge. Please check your connection.");
     } finally {
       setIsCreating(false);
       setShowModal(false);
