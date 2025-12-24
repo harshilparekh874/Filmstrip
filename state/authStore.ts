@@ -13,7 +13,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<{ isNewUser: boolean; userId?: string }>;
-  login: (userId: string) => Promise<void>;
+  login: (userId: string) => Promise<boolean>;
   signup: (userData: Partial<User>) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   verifyOtp: async (code: string) => {
     const email = get().emailContext;
-    if (!email) throw new Error("Email context lost.");
+    if (!email) throw new Error("Email context lost. Please restart.");
     const res = await cloudClient.post('/auth/verify', { email, code }) as any;
     if (res.userId) {
         set({ userIdContext: res.userId });
@@ -50,14 +50,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   login: async (userId: string) => {
-    const users = await cloudClient.get(`/users`, { userId }) as User[];
-    const user = users && users.length > 0 ? users[0] : null;
-    if (user) {
-      await storage.setItem('auth_user_data', user);
-      set({ user });
-    } else {
-        // This shouldn't happen if they verified, but just in case
-        throw new Error("Profile not found. Please sign up.");
+    try {
+        const users = await cloudClient.get(`/users`, { userId }) as User[];
+        const user = users && users.length > 0 ? users[0] : null;
+        if (user) {
+          await storage.setItem('auth_user_data', user);
+          set({ user });
+          return true;
+        }
+        return false;
+    } catch (err) {
+        console.error("Login lookup failed:", err);
+        return false;
     }
   },
 
@@ -67,7 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     
     const finalData = { 
         ...userData, 
-        id: userId, // Use the ID returned from Supabase Auth
+        id: userId,
         email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
     };

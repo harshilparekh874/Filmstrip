@@ -31,7 +31,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   const table = getTableFromUrl(url);
   const token = localStorage.getItem('supabase.auth.token');
   
-  // CRITICAL: Supabase requires BOTH apikey and Authorization headers
   const headers: Record<string, string> = {
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${token || SUPABASE_KEY}`,
@@ -42,11 +41,8 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   let targetUrl = `${SUPABASE_URL}/rest/v1/${table}`;
   let options: RequestInit = { method, headers };
 
-  // GET Request Parameter Handling
   if (method === 'GET') {
     const params = new URLSearchParams();
-    
-    // Handle "Get by ID" from URL path
     const pathParts = url.replace(/^\/+/, '').split('/');
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
@@ -54,7 +50,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
     if (body?.userId) {
         if (table === 'users') {
-            // FIX: Use 'id' for users table, 'userId' for others
             params.append('id', `eq.${body.userId}`);
         } else if (table === 'friendships') {
             if (url.includes('pending')) {
@@ -88,9 +83,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
     if (method === 'PUT' || method === 'PATCH') {
         const id = url.split('/').pop();
-        // If updating a user profile, ensure we use the 'id' column
-        const column = table === 'users' ? 'id' : 'id'; 
-        targetUrl += `?${column}=eq.${id}`;
+        targetUrl += `?id=eq.${id}`;
     }
   }
 
@@ -98,9 +91,13 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const response = await fetch(targetUrl, options);
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
-      if (err.message?.includes('relation') && err.message?.includes('does not exist')) {
-          alert(`DATABASE ERROR: Table "${table}" missing. Please run the SQL script from the README.`);
+      
+      // Handle 404 specially as it often means a missing table in Supabase
+      if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
+          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nThis usually means you need to run the SQL script provided in the README to create your database tables.`);
+          throw new Error(`Table "${table}" missing.`);
       }
+      
       throw new Error(err.message || 'Database error.');
     }
     return response.json();
@@ -119,7 +116,6 @@ export const cloudClient = {
   post: async (url: string, body: any) => {
     if (!isProduction) return cloudServerMock.handleRequest('POST', url, body);
     
-    // AUTH: OTP REQUEST
     if (url === '/auth/otp') {
         const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
             method: 'POST',
@@ -133,7 +129,6 @@ export const cloudClient = {
         return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || r.message || "OTP Failed"); });
     }
 
-    // AUTH: VERIFY OTP
     if (url === '/auth/verify') {
         const verify = async (type: string) => {
             return fetch(`${SUPABASE_URL}/auth/v1/verify`, {
@@ -147,10 +142,8 @@ export const cloudClient = {
             });
         };
 
-        // Attempt 'email' type (standard for OTP/MagicLink)
         let response = await verify('email');
         if (!response.ok) {
-            // Fallback to 'signup' type
             const secondResponse = await verify('signup');
             if (secondResponse.ok) response = secondResponse;
         }
@@ -158,14 +151,13 @@ export const cloudClient = {
         const res = await response.json();
         if (!response.ok) {
             console.error("Verification failed:", res);
-            throw new Error(res.msg || res.error_description || "Invalid code (403). Check your Supabase API keys.");
+            throw new Error(res.msg || res.error_description || "Invalid code (403).");
         }
 
         localStorage.setItem('supabase.auth.token', res.access_token);
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
-    // SOCIAL MAPPING
     if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;

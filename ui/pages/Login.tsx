@@ -18,7 +18,7 @@ const GENRES = [
 const IS_PROD = !!(import.meta as any).env?.VITE_SUPABASE_URL;
 
 export const Login: React.FC = () => {
-  const { signup, login, sendOtp, verifyOtp, emailContext } = useAuthStore();
+  const { signup, login, sendOtp, verifyOtp } = useAuthStore();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('EMAIL');
@@ -53,8 +53,7 @@ export const Login: React.FC = () => {
       await sendOtp(formData.email);
       setStep('VERIFY');
     } catch (err: any) {
-      console.error("OTP Error:", err);
-      setError(err.message || 'Could not send email. Check your internet or Supabase logs.');
+      setError(err.message || 'Could not send email.');
     } finally {
       setIsSubmitting(false);
     }
@@ -68,11 +67,16 @@ export const Login: React.FC = () => {
       if (res.isNewUser) {
         setStep('PROFILE');
       } else {
-        await login(res.userId!);
-        navigate('/dashboard');
+        // Attempt login. If profile record is missing, go to signup flow.
+        const success = await login(res.userId!);
+        if (success) {
+            navigate('/dashboard');
+        } else {
+            setStep('PROFILE');
+        }
       }
     } catch (err: any) {
-      setError(err.message || 'Invalid code. Please try again.');
+      setError(err.message || 'Invalid code.');
     } finally {
       setIsSubmitting(false);
     }
@@ -107,7 +111,7 @@ export const Login: React.FC = () => {
         <div className="p-8 space-y-8">
           {error && (
             <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl animate-bounce">
-              ⚠️ ERROR: {error}
+              ⚠️ {error}
             </div>
           )}
 
@@ -138,9 +142,6 @@ export const Login: React.FC = () => {
                 >
                   {isSubmitting ? 'Connecting...' : 'Send Verification Code'}
                 </button>
-                <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-wide">
-                  {IS_PROD ? 'Emails arrive from Supabase (check spam).' : 'Code will appear in the System Console.'}
-                </p>
               </div>
             </div>
           )}
@@ -164,8 +165,8 @@ export const Login: React.FC = () => {
               />
               <button 
                 onClick={handleVerifySubmit} 
-                disabled={formData.code.length < 6 || isSubmitting}
-                className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none transition-transform active:scale-95"
+                disabled={formData.code.length < 5 || isSubmitting}
+                className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl transition-transform active:scale-95"
               >
                 {isSubmitting ? 'Verifying...' : 'Verify & Continue'}
               </button>
