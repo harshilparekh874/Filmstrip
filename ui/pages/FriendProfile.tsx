@@ -23,10 +23,7 @@ export const FriendProfile: React.FC = () => {
   const [favMovie, setFavMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
   
-  // Optimization: Pre-fetch challenge fallback pool (Top 100)
   const [battlePoolIds, setBattlePoolIds] = useState<string[]>([]);
-
-  // Challenge Modal State
   const [showModal, setShowModal] = useState(false);
   const [gameType, setGameType] = useState<ChallengeType>('BRACKET');
   const [gameSize, setGameSize] = useState<10 | 20 | 50>(10);
@@ -37,57 +34,60 @@ export const FriendProfile: React.FC = () => {
       if (!id) return;
       setLoading(true);
       
-      // Parallel loading of profile data and potential challenge pool
-      const [u, e, m, ...topPages] = await Promise.all([
-        userRepo.getUserById(id),
-        movieRepo.getUserEntries(id),
-        movieRepo.getAllMovies(),
-        tmdbApi.getTopRatedMovies(1),
-        tmdbApi.getTopRatedMovies(2),
-        tmdbApi.getTopRatedMovies(3),
-        tmdbApi.getTopRatedMovies(4),
-        tmdbApi.getTopRatedMovies(5),
-      ]);
+      try {
+        const [u, e, m, ...topPages] = await Promise.all([
+          userRepo.getUserById(id),
+          movieRepo.getUserEntries(id),
+          movieRepo.getAllMovies(),
+          tmdbApi.getTopRatedMovies(1).catch(() => []),
+          tmdbApi.getTopRatedMovies(2).catch(() => []),
+          tmdbApi.getTopRatedMovies(3).catch(() => []),
+          tmdbApi.getTopRatedMovies(4).catch(() => []),
+          tmdbApi.getTopRatedMovies(5).catch(() => []),
+        ]);
 
-      setFriend(u || null);
-      setEntries(e);
-      setMovies(m);
+        setFriend(u || null);
+        setEntries(Array.isArray(e) ? e : []);
+        setMovies(Array.isArray(m) ? m : []);
 
-      // Extract and seed the global store with top-rated movie details for instant lookup
-      const allTopMovies = topPages.flat();
-      seedMovies(allTopMovies); 
-      setBattlePoolIds(allTopMovies.map(movie => movie.id));
+        const allTopMovies = topPages.flat();
+        if (allTopMovies.length > 0) {
+            seedMovies(allTopMovies); 
+            setBattlePoolIds(allTopMovies.map(movie => movie.id));
+        }
 
-      if (u?.favoriteMovieId) {
-        const fm = await movieRepo.getMovieById(u.favoriteMovieId);
-        setFavMovie(fm || null);
+        if (u?.favoriteMovieId) {
+          const fm = await movieRepo.getMovieById(u.favoriteMovieId);
+          setFavMovie(fm || null);
+        }
+      } catch (err) {
+        console.error("Failed to load friend profile:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     loadData();
-  }, [id]);
+  }, [id, seedMovies]);
 
   const handleStartChallenge = async () => {
     if (!currentUser || !friend) return;
     setIsCreating(true);
     
     try {
-      // 1. Get watched IDs from local memory (already fetched or seeded)
       const myEntries = await movieRepo.getUserEntries(currentUser.id);
+      const safeMyEntries = Array.isArray(myEntries) ? myEntries : [];
+      const safeFriendEntries = Array.isArray(entries) ? entries : [];
       
-      const myWatched = myEntries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
-      const friendWatched = entries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
+      const myWatched = safeMyEntries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
+      const friendWatched = safeFriendEntries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
       
-      // 2. Combine user movies
       let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
       
-      // 3. Instant backfill from Top 100 pre-fetched list
       if (poolIds.length < gameSize) {
           const filler = battlePoolIds.filter(id => !poolIds.includes(id));
           poolIds = [...poolIds, ...filler.slice(0, gameSize - poolIds.length)];
       }
       
-      // 4. Randomize and slice
       const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
       const challenge = await createChallenge({
@@ -99,7 +99,6 @@ export const FriendProfile: React.FC = () => {
         status: 'PENDING'
       });
 
-      // No network wait here, challenge contains everything needed
       navigate(`/social/challenge/${challenge.id}`);
     } catch (err) {
       console.error("Challenge creation failed", err);
@@ -115,7 +114,14 @@ export const FriendProfile: React.FC = () => {
       <div className="animate-spin h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
     </div>
   );
-  if (!friend) return <div className="p-20 text-center">User not found.</div>;
+
+  if (!friend) return (
+    <div className="p-20 text-center bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+      <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200">User Not Found</h2>
+      <p className="text-slate-500 dark:text-slate-400 mt-2">This user might have deleted their account or the link is invalid.</p>
+      <button onClick={() => navigate('/social')} className="mt-6 text-indigo-600 font-bold uppercase text-xs tracking-widest">Return to Social Hub</button>
+    </div>
+  );
 
   const watched = entries.filter(e => e.status === 'WATCHED');
   const dropped = entries.filter(e => e.status === 'DROPPED');
@@ -165,7 +171,7 @@ export const FriendProfile: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap justify-center gap-2 mt-6">
-            {friend.favoriteGenres.map(g => (
+            {(friend.favoriteGenres || []).map(g => (
               <span key={g} className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase rounded-full tracking-widest">
                 {g}
               </span>
@@ -257,9 +263,6 @@ export const FriendProfile: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 italic text-center mt-2">
-                Challenges start instantly using pre-cached Top Rated hits.
-              </p>
             </div>
 
             <div className="flex gap-3">
