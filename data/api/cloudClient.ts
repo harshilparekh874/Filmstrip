@@ -44,7 +44,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const params = new URLSearchParams();
     const pathParts = url.replace(/^\/+/, '').split('/');
     
-    // Check for ID in URL: /users/123
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
     }
@@ -76,13 +75,10 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
   if (body && method !== 'GET') {
     const cleanedBody = { ...body };
-    
-    // Supabase Auth users map to 'id' in the public users table
     if (table === 'users' && cleanedBody.userId) {
         cleanedBody.id = cleanedBody.userId;
         delete cleanedBody.userId;
     }
-    
     options.body = JSON.stringify(cleanedBody);
 
     if (method === 'PUT' || method === 'PATCH') {
@@ -100,16 +96,26 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
       const msg = err.message || `API Error ${response.status}`;
       
+      // SPECIAL CASE: Ignore duplicate friendship requests (already exists)
+      if (url.includes('social/request') || table === 'friendships') {
+          if (msg.includes('duplicate key') || response.status === 409) {
+              console.log("Friendship already exists, ignoring duplicate error.");
+              return { success: true, message: 'Existing request found' };
+          }
+      }
+
       if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
-          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nPlease check your Supabase SQL Editor and ensure you ran the script to create the "${table}" table.`);
+          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nPlease check your Supabase SQL Editor.`);
       } else {
-          console.error(`Supabase Request Failed: ${msg}`, { method, url, body });
+          console.error(`Supabase Request Failed: ${msg}`, { method, url });
       }
       
       throw new Error(msg);
     }
     return response.json();
   } catch (err: any) {
+    // If we've already handled the duplicate key error above, we don't need to re-throw here
+    if (err.message?.includes('duplicate key')) return { success: true };
     console.error(`Supabase Network Error [${method} ${url}]:`, err);
     throw err;
   }
