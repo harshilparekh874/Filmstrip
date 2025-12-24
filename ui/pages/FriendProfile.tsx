@@ -8,14 +8,13 @@ import { useSocialStore } from '../../state/socialStore';
 import { useMovieStore } from '../../state/movieStore';
 import { User, UserMovieEntry, Movie, ChallengeType } from '../../core/types/models';
 import { MovieCard } from '../components/MovieCard';
-import { tmdbApi } from '../../data/api/tmdbApi';
 
 export const FriendProfile: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user: currentUser } = useAuthStore();
   const { createChallenge } = useSocialStore();
-  const { movies: storeMovies, seedMovies } = useMovieStore();
+  const { movies: storeMovies } = useMovieStore();
 
   const [friend, setFriend] = useState<User | null>(null);
   const [entries, setEntries] = useState<UserMovieEntry[]>([]);
@@ -25,7 +24,7 @@ export const FriendProfile: React.FC = () => {
   
   const [showModal, setShowModal] = useState(false);
   const [gameType, setGameType] = useState<ChallengeType>('BRACKET');
-  const [gameSize, setGameSize] = useState<10 | 20 | 50>(10);
+  const [gameSize, setGameSize] = useState<number>(16);
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
@@ -57,6 +56,16 @@ export const FriendProfile: React.FC = () => {
     loadData();
   }, [id]);
 
+  // Adjust game size when switching types to ensure it's a valid option
+  const handleTypeChange = (type: ChallengeType) => {
+    setGameType(type);
+    if (type === 'BRACKET') {
+      setGameSize(16);
+    } else {
+      setGameSize(10);
+    }
+  };
+
   const handleStartChallenge = async () => {
     if (!currentUser || !friend) return;
     setIsCreating(true);
@@ -71,22 +80,21 @@ export const FriendProfile: React.FC = () => {
       
       let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
       
-      // Supplement pool
+      // Supplement pool from trending movies fetched in store
       const fillerPool = storeMovies.length > 0 ? storeMovies : await movieRepo.getAllMovies();
       const fillerIds = fillerPool.map(m => m.id).filter(id => !poolIds.includes(id));
       poolIds = [...poolIds, ...fillerIds.slice(0, Math.max(0, gameSize - poolIds.length))];
       
       const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
-      // CRITICAL FIX: Explicitly set turnUserId and status for Supabase compatibility
       const challenge = await createChallenge({
         creatorId: currentUser.id,
         recipientId: friend.id,
-        turnUserId: currentUser.id, // Creator starts
+        turnUserId: currentUser.id, 
         type: gameType,
-        size: gameSize,
+        size: gameSize as any,
         movieIds: challengeIds,
-        status: 'ACTIVE', // Jump straight to active so recipient can see it
+        status: 'ACTIVE',
         timestamp: Date.now()
       });
 
@@ -139,6 +147,10 @@ export const FriendProfile: React.FC = () => {
       )}
     </div>
   );
+
+  const bracketSizes = [16, 32, 64];
+  const tierListSizes = [10, 20, 50];
+  const currentSizes = gameType === 'BRACKET' ? bracketSizes : tierListSizes;
 
   return (
     <div className="space-y-10">
@@ -223,7 +235,7 @@ export const FriendProfile: React.FC = () => {
                 ].map(mode => (
                   <button
                     key={mode.id}
-                    onClick={() => setGameType(mode.id as ChallengeType)}
+                    onClick={() => handleTypeChange(mode.id as ChallengeType)}
                     className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition ${
                       gameType === mode.id 
                       ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' 
@@ -240,10 +252,10 @@ export const FriendProfile: React.FC = () => {
             <div className="space-y-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pool Size</label>
               <div className="grid grid-cols-3 gap-2">
-                {[10, 20, 50].map(s => (
+                {currentSizes.map(s => (
                   <button
                     key={s}
-                    onClick={() => setGameSize(s as any)}
+                    onClick={() => setGameSize(s)}
                     className={`py-3 rounded-xl font-black text-sm transition ${
                       gameSize === s 
                       ? 'bg-indigo-600 text-white' 

@@ -52,7 +52,7 @@ export interface SocialChallenge {
   recipientId: string;
   turnUserId: string; // Whose turn it is
   type: ChallengeType;
-  size: 10 | 20 | 50;
+  size: 10 | 16 | 20 | 32 | 50 | 64;
   status: ChallengeStatus;
   movieIds: string[];
   results?: any; // Stores multiplayer game state
