@@ -15,6 +15,8 @@ const GENRES = [
   'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation', 'Fantasy'
 ];
 
+const IS_PROD = !!(import.meta as any).env?.VITE_SUPABASE_URL;
+
 export const Login: React.FC = () => {
   const { signup, login, sendOtp, verifyOtp, emailContext } = useAuthStore();
   const navigate = useNavigate();
@@ -51,7 +53,9 @@ export const Login: React.FC = () => {
       await sendOtp(formData.email);
       setStep('VERIFY');
     } catch (err: any) {
-      setError(err.message || 'Connection failed');
+      console.error("OTP Error:", err);
+      // Display the specific error message from Supabase (e.g., Rate limit exceeded)
+      setError(err.message || 'Could not send email. Check your internet or Supabase logs.');
     } finally {
       setIsSubmitting(false);
     }
@@ -69,7 +73,7 @@ export const Login: React.FC = () => {
         navigate('/dashboard');
       }
     } catch (err: any) {
-      setError(err.message || 'Invalid code');
+      setError(err.message || 'Invalid code. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -84,7 +88,7 @@ export const Login: React.FC = () => {
       });
       navigate('/dashboard');
     } catch (err) {
-      setError('Signup failed');
+      setError('Signup failed. Username might be taken.');
     } finally {
       setIsSubmitting(false);
     }
@@ -103,21 +107,27 @@ export const Login: React.FC = () => {
 
         <div className="p-8 space-y-8">
           {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl">
-              ⚠️ {error}
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl animate-bounce">
+              ⚠️ ERROR: {error}
             </div>
           )}
 
           {step === 'EMAIL' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
               <div className="text-center">
+                <div className="mb-4 inline-flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-full">
+                  <div className={`w-2 h-2 rounded-full ${IS_PROD ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`} />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    {IS_PROD ? 'Live Production Server' : 'Simulation Mode'}
+                  </span>
+                </div>
                 <h1 className="text-4xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter mb-2">Filmstrip</h1>
-                <p className="text-slate-500 dark:text-slate-400 text-sm">Join the global community of film lovers.</p>
+                <p className="text-slate-500 dark:text-slate-400 text-sm">Track your cinema journey globally.</p>
               </div>
               <div className="space-y-4">
                 <input 
                   type="email" 
-                  placeholder="Enter your email"
+                  placeholder="name@example.com"
                   value={formData.email}
                   onChange={e => setFormData({...formData, email: e.target.value})}
                   className="w-full p-5 bg-slate-100 dark:bg-slate-800 rounded-2xl border-2 border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 outline-none transition"
@@ -127,8 +137,11 @@ export const Login: React.FC = () => {
                   disabled={!formData.email || isSubmitting}
                   className="w-full py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Checking...' : 'Get Started'}
+                  {isSubmitting ? 'Connecting...' : 'Send Verification Code'}
                 </button>
+                <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-wide">
+                  {IS_PROD ? 'Emails arrive from Supabase (check spam).' : 'Code will appear in the System Console.'}
+                </p>
               </div>
             </div>
           )}
@@ -136,66 +149,78 @@ export const Login: React.FC = () => {
           {step === 'VERIFY' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-4">
               <div className="text-center">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Check your Inbox</h2>
-                <p className="text-slate-500 text-sm mt-2">Enter the 4-digit code sent to <br/><strong>{formData.email}</strong></p>
-                <p className="text-[10px] text-slate-400 mt-4 font-black uppercase tracking-widest">(Check the browser console for your code!)</p>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Check your Email</h2>
+                <p className="text-slate-500 text-sm mt-2">
+                  Enter the 6-digit code sent to<br/>
+                  <strong className="text-indigo-600">{formData.email}</strong>
+                </p>
               </div>
               <input 
                 type="text" 
-                placeholder="0000"
-                maxLength={4}
+                placeholder="000000"
+                maxLength={6}
                 value={formData.code}
                 onChange={e => setFormData({...formData, code: e.target.value})}
-                className="w-full p-6 text-center text-4xl font-black tracking-[0.5em] bg-slate-100 dark:bg-slate-800 rounded-3xl border-2 border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 outline-none"
+                className="w-full p-6 text-center text-4xl font-black tracking-[0.2em] bg-slate-100 dark:bg-slate-800 rounded-3xl border-2 border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 outline-none"
               />
               <button 
                 onClick={handleVerifySubmit} 
-                disabled={formData.code.length < 4 || isSubmitting}
-                className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl"
+                disabled={formData.code.length < 6 || isSubmitting}
+                className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none transition-transform active:scale-95"
               >
-                Verify Code
+                {isSubmitting ? 'Verifying...' : 'Verify & Continue'}
+              </button>
+              <button 
+                onClick={() => setStep('EMAIL')}
+                className="w-full text-[10px] font-black uppercase text-slate-400 tracking-widest hover:text-indigo-500 transition"
+              >
+                ← Use a different email
               </button>
             </div>
           )}
 
           {step === 'PROFILE' && (
-            <div className="space-y-6">
-              <h2 className="text-2xl font-black text-center text-slate-900 dark:text-slate-100">Create Profile</h2>
+            <div className="space-y-6 animate-in slide-in-from-right-4">
+              <h2 className="text-2xl font-black text-center text-slate-900 dark:text-slate-100">Almost There!</h2>
+              <p className="text-center text-slate-500 text-sm -mt-4">Tell us who you are.</p>
               <div className="grid grid-cols-2 gap-4">
-                <input placeholder="First Name" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none"/>
-                <input placeholder="Last Name" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none"/>
+                <input placeholder="First Name" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none border border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100"/>
+                <input placeholder="Last Name" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none border border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100"/>
               </div>
-              <input placeholder="Username" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none"/>
-              <button onClick={() => setStep('AVATAR')} disabled={!formData.firstName || !formData.username} className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl">Next</button>
+              <input placeholder="Username (unique)" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl outline-none border border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100"/>
+              <button onClick={() => setStep('AVATAR')} disabled={!formData.firstName || !formData.username} className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl transition shadow-lg">Next Step</button>
             </div>
           )}
 
           {step === 'AVATAR' && (
-            <div className="space-y-6 text-center">
+            <div className="space-y-6 text-center animate-in slide-in-from-right-4">
               <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Pick an Avatar</h2>
               <div className="grid grid-cols-4 gap-3">
                 {PRESET_AVATARS.map(url => (
-                  <button key={url} onClick={() => setFormData({...formData, avatarUrl: url})} className={`aspect-square rounded-2xl border-4 ${formData.avatarUrl === url ? 'border-indigo-600' : 'border-transparent'}`}>
+                  <button key={url} onClick={() => setFormData({...formData, avatarUrl: url})} className={`aspect-square rounded-2xl border-4 transition-all ${formData.avatarUrl === url ? 'border-indigo-600 scale-110 shadow-lg z-10' : 'border-transparent opacity-60 hover:opacity-100'}`}>
                     <img src={url} className="w-full h-full object-cover rounded-xl" />
                   </button>
                 ))}
               </div>
-              <button onClick={() => setStep('PREFERENCES')} className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl">Continue</button>
+              <button onClick={() => setStep('PREFERENCES')} className="w-full py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-lg mt-4">One Last Thing</button>
             </div>
           )}
 
           {step === 'PREFERENCES' && (
-            <div className="space-y-8">
-              <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Last Step</h2>
-              <div className="flex flex-wrap gap-2">
+            <div className="space-y-8 animate-in slide-in-from-right-4">
+              <div className="text-center">
+                <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Your Taste</h2>
+                <p className="text-slate-500 text-sm">Select genres you love.</p>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center">
                 {GENRES.map(g => (
-                  <button key={g} onClick={() => setFormData(p => ({...p, favoriteGenres: p.favoriteGenres.includes(g) ? p.favoriteGenres.filter(x => x!==g) : [...p.favoriteGenres, g]}))} className={`px-4 py-2 rounded-full text-xs font-bold transition ${formData.favoriteGenres.includes(g) ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'}`}>
+                  <button key={g} onClick={() => setFormData(p => ({...p, favoriteGenres: p.favoriteGenres.includes(g) ? p.favoriteGenres.filter(x => x!==g) : [...p.favoriteGenres, g]}))} className={`px-4 py-2 rounded-full text-xs font-bold transition-all border ${formData.favoriteGenres.includes(g) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-transparent hover:border-slate-300'}`}>
                     {g}
                   </button>
                 ))}
               </div>
-              <button onClick={handleComplete} disabled={isSubmitting} className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl">
-                {isSubmitting ? 'Creating Account...' : 'Complete Profile'}
+              <button onClick={handleComplete} disabled={isSubmitting} className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl">
+                {isSubmitting ? 'Launching...' : 'Create My Account'}
               </button>
             </div>
           )}

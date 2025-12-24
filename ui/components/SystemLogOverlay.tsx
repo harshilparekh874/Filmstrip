@@ -10,7 +10,7 @@ interface LogEntry {
   timestamp: number;
 }
 
-const IS_PROD = !!(import.meta as any).env?.VITE_API_URL;
+const IS_PROD = !!(import.meta as any).env?.VITE_SUPABASE_URL;
 
 export const SystemLogOverlay: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -20,8 +20,14 @@ export const SystemLogOverlay: React.FC = () => {
 
   useEffect(() => {
     const handleLog = (e: any) => {
-      setLogs(prev => [e.detail, ...prev].slice(0, 50));
-      if (e.detail.type === 'MAIL') setIsOpen(true);
+      const entry = e.detail as LogEntry;
+      setLogs(prev => [entry, ...prev].slice(0, 50));
+      
+      // AUTO-OPEN on important simulation events
+      if (entry.type === 'MAIL') {
+        setIsOpen(true);
+      }
+      
       refreshUsers();
     };
 
@@ -33,15 +39,6 @@ export const SystemLogOverlay: React.FC = () => {
           setRegisteredUsers(db.users || []);
         } catch (err) {}
       }
-    };
-
-    const handleDevTrigger = () => {
-      let clicks = 0;
-      return () => {
-        clicks++;
-        if (clicks === 5) setVisible(true);
-        setTimeout(() => clicks = 0, 2000);
-      };
     };
 
     window.addEventListener('reelreason_system_log', handleLog);
