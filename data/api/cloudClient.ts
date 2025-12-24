@@ -52,6 +52,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
         } else if (table === 'friendships') {
+            // Use quoted column names from SQL schema for strict matching
             if (url.includes('pending')) {
                 params.append('friendId', `eq.${body.userId}`);
                 params.append('status', `eq.PENDING`);
@@ -114,7 +115,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     }
     return response.json();
   } catch (err: any) {
-    // If we've already handled the duplicate key error above, we don't need to re-throw here
     if (err.message?.includes('duplicate key')) return { success: true };
     console.error(`Supabase Network Error [${method} ${url}]:`, err);
     throw err;
@@ -172,6 +172,7 @@ export const cloudClient = {
     }
 
     if (url === '/social/request') {
+        // Explicitly map body to match SQL quoted column names
         return supabaseRequest('POST', '/friendships', { 
             userId: body.userId, 
             friendId: body.friendId, 
@@ -180,13 +181,15 @@ export const cloudClient = {
     }
     
     if (url === '/social/accept') {
+        // Use exact column names in query string
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
         return fetch(`${SUPABASE_URL}/rest/v1/friendships?${idQuery}`, {
             method: 'PATCH',
             headers: { 
                 'apikey': SUPABASE_KEY, 
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`,
-                'Content-Type': 'application/json' 
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
             },
             body: JSON.stringify({ status: 'ACCEPTED' })
         });
@@ -198,8 +201,7 @@ export const cloudClient = {
             method: 'DELETE',
             headers: { 
                 'apikey': SUPABASE_KEY, 
-                'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`,
-                'Content-Type': 'application/json' 
+                'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`
             }
         });
     }
@@ -219,7 +221,12 @@ export const cloudClient = {
     const userId = params.get('userId');
     const table = getTableFromUrl(url);
     
-    const query = movieId ? `movieId=eq.${movieId}&userId=eq.${userId}` : `id=eq.${params.get('id')}`;
+    let query = '';
+    if (movieId) {
+        query = `movieId=eq.${movieId}&userId=eq.${userId}`;
+    } else {
+        query = `id=eq.${params.get('id')}`;
+    }
     
     return fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
         method: 'DELETE',

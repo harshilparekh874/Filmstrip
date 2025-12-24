@@ -38,6 +38,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   fetchSocial: async (userId: string) => {
     set({ isLoading: true });
     try {
+      // Parallel fetch of all social data
       const [friends, allUsers, activityFeed, rawPending, outgoingRequests, challenges] = await Promise.all([
         socialRepo.getFriends(userId).catch(() => []),
         userRepo.getUsers().catch(() => []),
@@ -49,6 +50,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       
       const usersList = Array.isArray(allUsers) ? allUsers : [];
       
+      // Enrich pending requests with sender user details
       const enrichedPending = (Array.isArray(rawPending) ? rawPending : []).map(req => {
           const sender = usersList.find(u => u.id === req.id);
           return {
@@ -75,19 +77,25 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   sendRequest: async (userId: string, friendId: string) => {
     if (get().requestingIds.has(friendId)) return;
     
-    // Optimistic Update: Add to UI immediately
+    // Optimistic Update: Mark as sent immediately to avoid double clicks
     set(state => ({ 
         requestingIds: new Set(state.requestingIds).add(friendId),
-        outgoingRequests: [...state.outgoingRequests, friendId]
+        outgoingRequests: Array.from(new Set([...state.outgoingRequests, friendId]))
     }));
     
     try {
         await socialRepo.addFriendRequest(userId, friendId);
-        // Full refresh to ensure consistency
+        // Refresh social state to sync with server
         await get().fetchSocial(userId);
     } catch (err: any) {
+        // If it's a conflict error (already exists), we don't rollback
+        if (err.message?.includes('duplicate key')) {
+            await get().fetchSocial(userId);
+            return;
+        }
+
         console.error("Failed to send request:", err);
-        // Rollback on failure
+        // Rollback only on real network/logic failures
         set(state => ({
             outgoingRequests: state.outgoingRequests.filter(id => id !== friendId)
         }));

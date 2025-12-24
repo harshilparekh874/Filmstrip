@@ -11,10 +11,15 @@ export const socialRepo = {
     const res = await cloudClient.get('/social/requests/pending', { userId }) as any[];
     if (!Array.isArray(res)) return [];
     
-    return res.map(f => ({
-      id: f.userId || f.id, 
-      from: f.from || { id: f.userId || f.id, name: 'Unknown User' }
-    }));
+    // In a pending request, 'userId' is the sender and 'friendId' is me.
+    // We want to return the 'userId' (sender) so the receiver can accept it.
+    return res.map(f => {
+      const senderId = f.userId || f.id;
+      return {
+        id: senderId, 
+        from: f.from || { id: senderId, name: 'Unknown User' }
+      };
+    }).filter(r => r.id);
   },
 
   getOutgoingRequests: async (userId: string): Promise<string[]> => {
