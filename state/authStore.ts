@@ -8,6 +8,7 @@ interface AuthState {
   user: User | null;
   isLoading: boolean;
   emailContext: string | null;
+  userIdContext: string | null;
   
   initialize: () => Promise<void>;
   sendOtp: (email: string) => Promise<void>;
@@ -22,6 +23,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: true,
   emailContext: null,
+  userIdContext: null,
   
   initialize: async () => {
     set({ isLoading: true });
@@ -41,21 +43,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const email = get().emailContext;
     if (!email) throw new Error("Email context lost.");
     const res = await cloudClient.post('/auth/verify', { email, code }) as any;
+    if (res.userId) {
+        set({ userIdContext: res.userId });
+    }
     return res;
   },
 
   login: async (userId: string) => {
-    const user = await cloudClient.get(`/users/${userId}`) as User;
+    const users = await cloudClient.get(`/users`, { userId }) as User[];
+    const user = users && users.length > 0 ? users[0] : null;
     if (user) {
       await storage.setItem('auth_user_data', user);
       set({ user });
+    } else {
+        // This shouldn't happen if they verified, but just in case
+        throw new Error("Profile not found. Please sign up.");
     }
   },
 
   signup: async (userData: Partial<User>) => {
     const email = get().emailContext;
-    const finalData = { ...userData, email };
-    const user = await cloudClient.post('/auth/signup', finalData) as User;
+    const userId = get().userIdContext;
+    
+    const finalData = { 
+        ...userData, 
+        id: userId, // Use the ID returned from Supabase Auth
+        email,
+        name: `${userData.firstName} ${userData.lastName}`.trim(),
+    };
+
+    const results = await cloudClient.post('/auth/signup', finalData) as User[];
+    const user = Array.isArray(results) ? results[0] : results;
+    
     await storage.setItem('auth_user_data', user);
     set({ user });
   },
@@ -63,13 +82,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updateUser: async (updates: Partial<User>) => {
     const currentUser = get().user;
     if (!currentUser) return;
-    const updatedUser = await cloudClient.put(`/users/${currentUser.id}`, updates) as User;
+    
+    const results = await cloudClient.put(`/users/${currentUser.id}`, updates) as User[];
+    const updatedUser = Array.isArray(results) ? results[0] : results;
+    
     await storage.setItem('auth_user_data', updatedUser);
     set({ user: updatedUser });
   },
 
   logout: async () => {
     await storage.removeItem('auth_user_data');
-    set({ user: null, emailContext: null });
+    localStorage.removeItem('supabase.auth.token');
+    set({ user: null, emailContext: null, userIdContext: null });
   }
 }));
