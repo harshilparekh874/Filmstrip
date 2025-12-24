@@ -44,6 +44,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const params = new URLSearchParams();
     const pathParts = url.replace(/^\/+/, '').split('/');
     
+    // Check for ID in URL: /users/123
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
     }
@@ -76,7 +77,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   if (body && method !== 'GET') {
     const cleanedBody = { ...body };
     
-    // Fix: Supabase Auth users map to 'id' in the public users table
+    // Supabase Auth users map to 'id' in the public users table
     if (table === 'users' && cleanedBody.userId) {
         cleanedBody.id = cleanedBody.userId;
         delete cleanedBody.userId;
@@ -85,7 +86,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     options.body = JSON.stringify(cleanedBody);
 
     if (method === 'PUT' || method === 'PATCH') {
-        // Extract ID from the end of the URL
         const parts = url.split('/');
         const id = parts[parts.length - 1];
         if (id && id !== table) {
@@ -98,17 +98,19 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const response = await fetch(targetUrl, options);
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
+      const msg = err.message || `API Error ${response.status}`;
       
       if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
           alert(`DATABASE ERROR: Resource "${table}" not found.\n\nPlease check your Supabase SQL Editor and ensure you ran the script to create the "${table}" table.`);
-          throw new Error(`Table "${table}" missing.`);
+      } else {
+          console.error(`Supabase Request Failed: ${msg}`, { method, url, body });
       }
       
-      throw new Error(err.message || `API Error ${response.status}`);
+      throw new Error(msg);
     }
     return response.json();
   } catch (err: any) {
-    console.error(`Supabase Error [${method} ${url}]:`, err);
+    console.error(`Supabase Network Error [${method} ${url}]:`, err);
     throw err;
   }
 };
@@ -163,7 +165,13 @@ export const cloudClient = {
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
-    if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
+    if (url === '/social/request') {
+        return supabaseRequest('POST', '/friendships', { 
+            userId: body.userId, 
+            friendId: body.friendId, 
+            status: 'PENDING' 
+        });
+    }
     
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
@@ -205,7 +213,9 @@ export const cloudClient = {
     const userId = params.get('userId');
     const table = getTableFromUrl(url);
     
-    return fetch(`${SUPABASE_URL}/rest/v1/${table}?movieId=eq.${movieId}&userId=eq.${userId}`, {
+    const query = movieId ? `movieId=eq.${movieId}&userId=eq.${userId}` : `id=eq.${params.get('id')}`;
+    
+    return fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
         method: 'DELETE',
         headers: { 
             'apikey': SUPABASE_KEY, 

@@ -38,7 +38,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   fetchSocial: async (userId: string) => {
     set({ isLoading: true });
     try {
-      // 1. Fetch raw data from all endpoints
       const [friends, allUsers, activityFeed, rawPending, outgoingRequests, challenges] = await Promise.all([
         socialRepo.getFriends(userId).catch(() => []),
         userRepo.getUsers().catch(() => []),
@@ -50,8 +49,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       
       const usersList = Array.isArray(allUsers) ? allUsers : [];
       
-      // 2. ENRICHMENT: Match pending request IDs with User objects from our local pool
-      // This solves the 'Unknown User' or missing request data issue in production
       const enrichedPending = (Array.isArray(rawPending) ? rawPending : []).map(req => {
           const sender = usersList.find(u => u.id === req.id);
           return {
@@ -77,14 +74,24 @@ export const useSocialStore = create<SocialState>((set, get) => ({
 
   sendRequest: async (userId: string, friendId: string) => {
     if (get().requestingIds.has(friendId)) return;
-    set(state => ({ requestingIds: new Set(state.requestingIds).add(friendId) }));
+    
+    // Optimistic Update: Add to UI immediately
+    set(state => ({ 
+        requestingIds: new Set(state.requestingIds).add(friendId),
+        outgoingRequests: [...state.outgoingRequests, friendId]
+    }));
     
     try {
         await socialRepo.addFriendRequest(userId, friendId);
-        const outgoingRequests = await socialRepo.getOutgoingRequests(userId);
-        set({ outgoingRequests: Array.isArray(outgoingRequests) ? outgoingRequests : [] });
-    } catch (err) {
+        // Full refresh to ensure consistency
+        await get().fetchSocial(userId);
+    } catch (err: any) {
         console.error("Failed to send request:", err);
+        // Rollback on failure
+        set(state => ({
+            outgoingRequests: state.outgoingRequests.filter(id => id !== friendId)
+        }));
+        alert(`Follow Failed: ${err.message || 'Check connection'}`);
     } finally {
         set(state => {
             const next = new Set(state.requestingIds);
@@ -97,7 +104,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   acceptRequest: async (userId: string, senderId: string) => {
     try {
         await socialRepo.acceptFriendRequest(userId, senderId);
-        // Refresh local state immediately
         await get().fetchSocial(userId);
     } catch (err) {
         console.error("Failed to accept request:", err);
@@ -107,7 +113,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   rejectRequest: async (userId: string, senderId: string) => {
     try {
         await socialRepo.rejectFriendRequest(userId, senderId);
-        // Refresh local state immediately
         await get().fetchSocial(userId);
     } catch (err) {
         console.error("Failed to reject request:", err);
