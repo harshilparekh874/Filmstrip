@@ -38,7 +38,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   fetchSocial: async (userId: string) => {
     set({ isLoading: true });
     try {
-      const [friends, allUsers, activityFeed, pendingRequests, outgoingRequests, challenges] = await Promise.all([
+      // 1. Fetch raw data from all endpoints
+      const [friends, allUsers, activityFeed, rawPending, outgoingRequests, challenges] = await Promise.all([
         socialRepo.getFriends(userId).catch(() => []),
         userRepo.getUsers().catch(() => []),
         activityRepo.getActivityFeed(userId).catch(() => []),
@@ -47,11 +48,23 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         socialRepo.getChallenges(userId).catch(() => [])
       ]);
       
+      const usersList = Array.isArray(allUsers) ? allUsers : [];
+      
+      // 2. ENRICHMENT: Match pending request IDs with User objects from our local pool
+      // This solves the 'Unknown User' or missing request data issue in production
+      const enrichedPending = (Array.isArray(rawPending) ? rawPending : []).map(req => {
+          const sender = usersList.find(u => u.id === req.id);
+          return {
+              id: req.id,
+              from: sender || req.from || { id: req.id, name: 'New Request', avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${req.id}` }
+          };
+      });
+      
       set({ 
         friends: Array.isArray(friends) ? friends : [], 
-        allUsers: Array.isArray(allUsers) ? allUsers : [], 
+        allUsers: usersList, 
         activityFeed: Array.isArray(activityFeed) ? activityFeed : [], 
-        pendingRequests: Array.isArray(pendingRequests) ? pendingRequests : [], 
+        pendingRequests: enrichedPending, 
         outgoingRequests: Array.isArray(outgoingRequests) ? outgoingRequests : [], 
         challenges: Array.isArray(challenges) ? challenges : [], 
         isLoading: false 
@@ -63,9 +76,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   sendRequest: async (userId: string, friendId: string) => {
-    // Prevent double clicking
     if (get().requestingIds.has(friendId)) return;
-    
     set(state => ({ requestingIds: new Set(state.requestingIds).add(friendId) }));
     
     try {
@@ -84,23 +95,23 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   acceptRequest: async (userId: string, senderId: string) => {
-    await socialRepo.acceptFriendRequest(userId, senderId);
-    const [friends, activityFeed, pendingRequests] = await Promise.all([
-      socialRepo.getFriends(userId),
-      activityRepo.getActivityFeed(userId),
-      socialRepo.getPendingRequests(userId)
-    ]);
-    set({ 
-      friends: Array.isArray(friends) ? friends : [], 
-      activityFeed: Array.isArray(activityFeed) ? activityFeed : [], 
-      pendingRequests: Array.isArray(pendingRequests) ? pendingRequests : [] 
-    });
+    try {
+        await socialRepo.acceptFriendRequest(userId, senderId);
+        // Refresh local state immediately
+        await get().fetchSocial(userId);
+    } catch (err) {
+        console.error("Failed to accept request:", err);
+    }
   },
 
   rejectRequest: async (userId: string, senderId: string) => {
-    await socialRepo.rejectFriendRequest(userId, senderId);
-    const pendingRequests = await socialRepo.getPendingRequests(userId);
-    set({ pendingRequests: Array.isArray(pendingRequests) ? pendingRequests : [] });
+    try {
+        await socialRepo.rejectFriendRequest(userId, senderId);
+        // Refresh local state immediately
+        await get().fetchSocial(userId);
+    } catch (err) {
+        console.error("Failed to reject request:", err);
+    }
   },
 
   createChallenge: async (challenge: Partial<SocialChallenge>) => {

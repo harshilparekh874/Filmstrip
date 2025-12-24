@@ -19,7 +19,7 @@ const getTableFromUrl = (url: string): string => {
   if (path.includes('auth/signup')) return 'users';
   if (path.startsWith('users')) return 'users';
   if (path.startsWith('entries')) return 'entries';
-  if (path.includes('social/friends') || path.includes('social/requests') || path.includes('social/request') || path.includes('social/accept')) return 'friendships';
+  if (path.includes('social/friends') || path.includes('social/requests') || path.includes('social/request') || path.includes('social/accept') || path.includes('social/reject')) return 'friendships';
   if (path.startsWith('activity')) return 'activity';
   if (path.startsWith('challenges')) return 'challenges';
   
@@ -164,6 +164,7 @@ export const cloudClient = {
     }
 
     if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
+    
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
         return fetch(`${SUPABASE_URL}/rest/v1/friendships?${idQuery}`, {
@@ -174,6 +175,18 @@ export const cloudClient = {
                 'Content-Type': 'application/json' 
             },
             body: JSON.stringify({ status: 'ACCEPTED' })
+        });
+    }
+
+    if (url === '/social/reject') {
+        const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
+        return fetch(`${SUPABASE_URL}/rest/v1/friendships?${idQuery}`, {
+            method: 'DELETE',
+            headers: { 
+                'apikey': SUPABASE_KEY, 
+                'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || SUPABASE_KEY}`,
+                'Content-Type': 'application/json' 
+            }
         });
     }
 
