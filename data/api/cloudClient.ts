@@ -75,7 +75,6 @@ export const cloudClient = {
                 body: JSON.stringify({ 
                     email: body.email,
                     options: {
-                        // Supabase requires a redirect setup even for OTP in some regions
                         emailRedirectTo: window.location.origin 
                     }
                 })
@@ -83,49 +82,43 @@ export const cloudClient = {
             
             const res = await response.json().catch(() => ({}));
             if (!response.ok) {
-                // If 500, Supabase usually returns { msg: "...", error_description: "..." }
-                throw new Error(res.msg || res.error_description || res.message || `Supabase Auth Error ${response.status}`);
+                throw new Error(res.msg || res.error_description || res.message || `Auth Error ${response.status}`);
             }
             return { success: true };
         } catch (err: any) {
-            console.error("Supabase OTP Fetch Fatal:", err);
             throw err;
         }
     }
 
     if (url === '/auth/verify') {
-        const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-            method: 'POST',
-            headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                email: body.email, 
-                token: body.code, 
-                type: 'signup' 
-            })
-        });
-        
-        let res = await response.json().catch(() => ({}));
-        
-        if (!response.ok) {
-            // Try secondary type 'email' which is used in some Supabase configs
-            const secondTry = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+        // We try 'signup' first, then 'magiclink' - Supabase uses different types 
+        // depending on if the user exists yet or not.
+        const tryVerify = async (type: 'signup' | 'magiclink' | 'email') => {
+            const response = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
                 method: 'POST',
                 headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     email: body.email, 
                     token: body.code, 
-                    type: 'email' 
+                    type
                 })
             });
-            res = await secondTry.json().catch(() => ({}));
-            if (!secondTry.ok) throw new Error(res.msg || res.error_description || "Invalid verification code.");
+            return { ok: response.ok, data: await response.json().catch(() => ({})) };
+        };
+
+        let res = await tryVerify('signup');
+        if (!res.ok) res = await tryVerify('magiclink');
+        if (!res.ok) res = await tryVerify('email');
+
+        if (!res.ok) {
+            throw new Error(res.data.msg || res.data.error_description || "Invalid verification code.");
         }
 
-        localStorage.setItem('supabase.auth.token', res.access_token);
+        localStorage.setItem('supabase.auth.token', res.data.access_token);
         return { 
             success: true, 
-            isNewUser: !res.user?.last_sign_in_at, 
-            userId: res.user?.id 
+            isNewUser: !res.data.user?.last_sign_in_at, 
+            userId: res.data.user?.id 
         };
     }
 
