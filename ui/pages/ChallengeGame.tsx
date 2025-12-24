@@ -16,6 +16,7 @@ export const ChallengeGame: React.FC = () => {
 
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
 
@@ -78,13 +79,33 @@ export const ChallengeGame: React.FC = () => {
     const interval = setInterval(() => {
         // Always poll if game is ongoing to catch state changes
         fetchSocial(user.id);
-    }, 5000);
+    }, 6000);
 
     return () => clearInterval(interval);
   }, [user?.id, id, fetchSocial]);
 
-  // Derive turn state
-  const isMyTurn = localChallenge?.turnUserId === user?.id;
+  const handleManualRefresh = async () => {
+      if (!user) return;
+      setIsRefreshing(true);
+      await fetchSocial(user.id);
+      setIsRefreshing(false);
+  };
+
+  // Derive turn state with hardened fallback
+  const deriveIsMyTurn = () => {
+      if (!localChallenge || !user) return false;
+      
+      // If turnUserId is specifically us
+      if (localChallenge.turnUserId === user.id) return true;
+      
+      // Fallback: If turnUserId is invalid/missing and we are the creator, assume we start
+      const someoneElseHasTurn = localChallenge.turnUserId === (localChallenge.creatorId === user.id ? localChallenge.recipientId : localChallenge.creatorId);
+      if (!localChallenge.turnUserId && localChallenge.creatorId === user.id && !someoneElseHasTurn) return true;
+
+      return false;
+  };
+
+  const isMyTurn = deriveIsMyTurn();
   const opponentId = localChallenge?.creatorId === user?.id ? localChallenge?.recipientId : localChallenge?.creatorId;
   const opponent = allUsers.find(u => u.id === opponentId);
 
@@ -239,14 +260,22 @@ export const ChallengeGame: React.FC = () => {
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
             {localChallenge.type === 'BRACKET' ? 'Bracket Fight' : 'Tier List'}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-             Battle with <strong>{opponent?.firstName || 'Friend'}</strong> • 
-             {isMyTurn ? (
-                 <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn</span>
-             ) : (
-                 <span className="text-slate-400 ml-2">Waiting for {opponent?.firstName || 'opponent'}...</span>
-             )}
-          </p>
+          <div className="flex items-center gap-3 mt-2">
+              <p className="text-slate-500 dark:text-slate-400">
+                Battle with <strong>{opponent?.firstName || 'Friend'}</strong> • 
+                {isMyTurn ? (
+                    <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn</span>
+                ) : (
+                    <span className="text-slate-400 ml-2">Waiting for {opponent?.firstName || 'opponent'}...</span>
+                )}
+              </p>
+              <button 
+                onClick={handleManualRefresh}
+                className={`text-[10px] font-black uppercase tracking-widest p-1.5 px-3 rounded-full border border-slate-200 dark:border-slate-800 transition ${isRefreshing ? 'animate-spin opacity-50' : 'hover:bg-white dark:hover:bg-slate-800'}`}
+              >
+                  🔄 {isRefreshing ? '' : 'Sync Battle'}
+              </button>
+          </div>
         </div>
         
         <div className={`px-6 py-3 rounded-2xl flex items-center gap-4 shadow-xl transition-colors ${isMyTurn ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>

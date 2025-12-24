@@ -55,8 +55,22 @@ const mapToMovie = (m: any): Movie => {
 
 export const tmdbApi = {
   getPopularMovies: async (): Promise<Movie[]> => {
-    const data = await fetchTmdb('/trending/all/week');
-    return (data.results || []).map(mapToMovie);
+    // Fetch 5 pages to get the Top 100
+    const pages = [1, 2, 3, 4, 5];
+    const results = await Promise.all(
+        pages.map(page => fetchTmdb(`/trending/all/week?page=${page}`))
+    );
+    
+    const allResults = results.flatMap(r => r.results || []);
+    const seen = new Set();
+    
+    return allResults
+        .filter(m => {
+            const duplicate = seen.has(m.id);
+            seen.add(m.id);
+            return !duplicate && (m.media_type === 'movie' || m.media_type === 'tv');
+        })
+        .map(mapToMovie);
   },
 
   getTopRatedMovies: async (page = 1): Promise<Movie[]> => {
