@@ -4,21 +4,24 @@ import { User, SocialChallenge } from '../../core/types/models';
 
 export const socialRepo = {
   getFriends: async (userId: string): Promise<User[]> => {
-    return await cloudClient.get('/social/friends', { userId }) as User[];
+    const rawFriends = await cloudClient.get('/social/friends', { userId }) as any[];
+    if (!Array.isArray(rawFriends)) return [];
+    
+    // Normalize response: Mock DB returns full users, Supabase returns friendship objects if joined incorrectly
+    // But our current cloudClient GET /social/friends with ACCEPTED filter should return user objects directly
+    // based on our manual matching in cloudClient.
+    return rawFriends as User[];
   },
 
-  getPendingRequests: async (userId: string): Promise<{ id: string, from: User }[]> => {
+  getPendingRequests: async (userId: string): Promise<{ id: string }[]> => {
     const res = await cloudClient.get('/social/requests/pending', { userId }) as any[];
     if (!Array.isArray(res)) return [];
     
-    return res.map(f => {
-      // In Supabase, the joined 'from' field will be available if using select=*,from:userId(*)
-      const senderId = f.userId || f.id;
-      return {
-        id: senderId, 
-        from: f.from || { id: senderId, name: 'New Request' }
-      };
-    }).filter(r => r.id);
+    // In a pending request, 'userId' is the sender. 
+    // We return their ID so the recipient can look them up in the allUsers list.
+    return res.map(f => ({
+      id: f.userId || f.id
+    })).filter(r => r.id);
   },
 
   getOutgoingRequests: async (userId: string): Promise<string[]> => {

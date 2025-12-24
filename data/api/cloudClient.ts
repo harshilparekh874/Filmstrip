@@ -52,10 +52,8 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
         } else if (table === 'friendships') {
+            // Strictly match the column names defined in the SQL setup
             if (url.includes('pending')) {
-                // IMPORTANT: Use the exact column names as defined in SQL
-                // We also add a select query to join the sender's user info
-                params.append('select', '*,from:userId(*)');
                 params.append('friendId', `eq.${body.userId}`);
                 params.append('status', `eq.PENDING`);
             } else if (url.includes('outgoing')) {

@@ -50,12 +50,17 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       
       const usersList = Array.isArray(allUsers) ? allUsers : [];
       
-      // Enrich pending requests with sender user details
+      // ENRICHMENT: Map the raw IDs from pending requests to actual User objects
       const enrichedPending = (Array.isArray(rawPending) ? rawPending : []).map(req => {
           const sender = usersList.find(u => u.id === req.id);
           return {
               id: req.id,
-              from: sender || req.from || { id: req.id, name: 'New Request', avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${req.id}` }
+              from: sender || { 
+                id: req.id, 
+                name: 'New Connection', 
+                avatarUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${req.id}`,
+                username: 'user'
+              } as User
           };
       });
       
