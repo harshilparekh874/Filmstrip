@@ -54,7 +54,6 @@ export const Login: React.FC = () => {
       setStep('VERIFY');
     } catch (err: any) {
       console.error("OTP Error:", err);
-      // Display the specific error message from Supabase (e.g., Rate limit exceeded)
       setError(err.message || 'Could not send email. Check your internet or Supabase logs.');
     } finally {
       setIsSubmitting(false);
@@ -151,17 +150,17 @@ export const Login: React.FC = () => {
               <div className="text-center">
                 <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">Check your Email</h2>
                 <p className="text-slate-500 text-sm mt-2">
-                  Enter the 6-digit code sent to<br/>
+                  Enter the verification code sent to<br/>
                   <strong className="text-indigo-600">{formData.email}</strong>
                 </p>
               </div>
               <input 
                 type="text" 
-                placeholder="000000"
-                maxLength={6}
+                placeholder="••••••••"
+                maxLength={10}
                 value={formData.code}
                 onChange={e => setFormData({...formData, code: e.target.value})}
-                className="w-full p-6 text-center text-4xl font-black tracking-[0.2em] bg-slate-100 dark:bg-slate-800 rounded-3xl border-2 border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 outline-none"
+                className="w-full p-6 text-center text-3xl font-black tracking-[0.2em] bg-slate-100 dark:bg-slate-800 rounded-3xl border-2 border-transparent focus:border-indigo-500 text-slate-900 dark:text-slate-100 outline-none"
               />
               <button 
                 onClick={handleVerifySubmit} 
