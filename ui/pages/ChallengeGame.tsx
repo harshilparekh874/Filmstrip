@@ -17,22 +17,23 @@ export const ChallengeGame: React.FC = () => {
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hasAttemptedResolution = useRef(false);
+  const isInitialLoadRef = useRef(true);
 
-  // 1. Initial Data Fetching & Sync
+  // 1. Initial Data Fetching & Sync (No recursion)
   useEffect(() => {
     const init = async () => {
       if (!user?.id || !id) return;
       
       const found = challenges.find(c => c.id === id);
-      if (!found) {
-        // Not in store yet, pull fresh social data (including challenges)
+      if (!found && isInitialLoadRef.current) {
+        isInitialLoadRef.current = false;
         await fetchSocial(user.id);
-      } else {
+      } else if (found) {
         setLocalChallenge(found);
       }
     };
     init();
-  }, [id, user?.id, fetchSocial, challenges]);
+  }, [id, user?.id]); // Removed 'challenges' and 'fetchSocial' to prevent loops
 
   // 2. Keep localChallenge in sync with store updates (multiplayer turns)
   useEffect(() => {
@@ -68,17 +69,18 @@ export const ChallengeGame: React.FC = () => {
     resolveMovies();
   }, [localChallenge, movies, seedMovies]);
 
-  // 4. Polling for Turn Updates (Only if it's not our turn)
+  // 4. Polling for Turn Updates (Stable dependency)
   useEffect(() => {
     if (!user?.id || !id) return;
     const interval = setInterval(() => {
       const current = challenges.find(c => c.id === id);
+      // Only poll if it's NOT our turn and game is ongoing
       if (current && current.turnUserId !== user.id && current.status !== 'COMPLETED') {
         fetchSocial(user.id);
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [user?.id, id, challenges, fetchSocial]);
+  }, [user?.id, id, fetchSocial]); // Challenges removed from deps to avoid loop
 
   // Derive turn state
   const isMyTurn = localChallenge?.turnUserId === user?.id;

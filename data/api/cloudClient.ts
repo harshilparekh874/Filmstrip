@@ -56,6 +56,9 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
             params.append('or', `(userId.eq.${body.userId},friendId.eq.${body.userId})`);
             params.append('status', `eq.ACCEPTED`);
         }
+    } else if (body?.userId && table === 'challenges') {
+        // Challenges use creatorId or recipientId
+        params.append('or', `(creatorId.eq.${body.userId},recipientId.eq.${body.userId})`);
     } else if (body?.userId) {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
