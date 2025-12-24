@@ -1,0 +1,5 @@
+{
+  "name": "Filmstrip",
+  "description": "A portable movie tracking and social app architected for easy migration to React Native, featuring watched lists, drop reasons, and friend-based recommendations.",
+  "requestFramePermissions": []
+}
