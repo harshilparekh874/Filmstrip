@@ -11,16 +11,16 @@ const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
 const isProduction = !!(SUPABASE_URL && SUPABASE_KEY);
 
 /**
- * Route Mapping: Maps mock API paths to actual Supabase tables
+ * Route Mapping: Maps application paths to actual Supabase REST tables
  */
 const getTableFromUrl = (url: string): string => {
   const path = url.replace(/^\/+/, '').split('?')[0].toLowerCase();
   
+  // Specific internal route mapping
+  if (path.includes('auth/signup')) return 'users';
   if (path.startsWith('users')) return 'users';
   if (path.startsWith('entries')) return 'entries';
-  if (path.includes('social/friends')) return 'friendships';
-  if (path.includes('social/requests')) return 'friendships';
-  if (path.includes('social/request') || path.includes('social/accept')) return 'friendships';
+  if (path.includes('social/friends') || path.includes('social/requests') || path.includes('social/request') || path.includes('social/accept')) return 'friendships';
   if (path.startsWith('activity')) return 'activity';
   if (path.startsWith('challenges')) return 'challenges';
   
@@ -31,6 +31,7 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   const table = getTableFromUrl(url);
   const token = localStorage.getItem('supabase.auth.token');
   
+  // CRITICAL: Supabase requires BOTH apikey and Authorization headers
   const headers: Record<string, string> = {
     'apikey': SUPABASE_KEY,
     'Authorization': `Bearer ${token || SUPABASE_KEY}`,
@@ -44,6 +45,8 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   if (method === 'GET') {
     const params = new URLSearchParams();
     const pathParts = url.replace(/^\/+/, '').split('/');
+    
+    // Handle "Get by ID" from URL path (e.g., /users/123)
     if (pathParts.length > 1 && pathParts[1] && !pathParts[1].includes('?')) {
         params.append('id', `eq.${pathParts[1]}`);
     }
@@ -75,7 +78,8 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
 
   if (body && method !== 'GET') {
     const cleanedBody = { ...body };
-    if (table === 'users' && cleanedBody.userId) {
+    // Ensure we map 'userId' to 'id' if we are writing to the users table
+    if (table === 'users' && cleanedBody.userId && !cleanedBody.id) {
         cleanedBody.id = cleanedBody.userId;
         delete cleanedBody.userId;
     }
@@ -92,9 +96,8 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
       
-      // Handle 404 specially as it often means a missing table in Supabase
       if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
-          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nThis usually means you need to run the SQL script provided in the README to create your database tables.`);
+          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nPlease check your Supabase SQL Editor and ensure you ran the script to create the "${table}" table.`);
           throw new Error(`Table "${table}" missing.`);
       }
       
@@ -116,6 +119,7 @@ export const cloudClient = {
   post: async (url: string, body: any) => {
     if (!isProduction) return cloudServerMock.handleRequest('POST', url, body);
     
+    // Handle OTP Flow specifically
     if (url === '/auth/otp') {
         const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
             method: 'POST',
@@ -129,6 +133,7 @@ export const cloudClient = {
         return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || r.message || "OTP Failed"); });
     }
 
+    // Handle Verification Flow specifically
     if (url === '/auth/verify') {
         const verify = async (type: string) => {
             return fetch(`${SUPABASE_URL}/auth/v1/verify`, {
@@ -150,14 +155,14 @@ export const cloudClient = {
 
         const res = await response.json();
         if (!response.ok) {
-            console.error("Verification failed:", res);
-            throw new Error(res.msg || res.error_description || "Invalid code (403).");
+            throw new Error(res.msg || res.error_description || "Invalid code.");
         }
 
         localStorage.setItem('supabase.auth.token', res.access_token);
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
+    // Map custom social routes
     if (url === '/social/request') return supabaseRequest('POST', '/friendships', { ...body, status: 'PENDING' });
     if (url === '/social/accept') {
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
@@ -172,6 +177,7 @@ export const cloudClient = {
         });
     }
 
+    // Default to the REST table request
     return supabaseRequest('POST', url, body);
   },
 
