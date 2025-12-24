@@ -52,14 +52,16 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
             params.append('userId', `eq.${body.userId}`);
             params.append('status', `eq.PENDING`);
         } else {
-            // General friends list (Accepted)
             params.append('or', `(userId.eq.${body.userId},friendId.eq.${body.userId})`);
             params.append('status', `eq.ACCEPTED`);
         }
-    } else if (body?.userId && table === 'challenges') {
-        // Challenges use creatorId or recipientId
+    } 
+    // Challenges use creatorId or recipientId - do NOT add generic userId param
+    else if (body?.userId && table === 'challenges') {
         params.append('or', `(creatorId.eq.${body.userId},recipientId.eq.${body.userId})`);
-    } else if (body?.userId) {
+    } 
+    // Generic userId param for other tables (like entries)
+    else if (body?.userId) {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
         } else {
@@ -98,15 +100,15 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
       const msg = err.message || `API Error ${response.status}`;
-      
-      if (url.includes('social/request') || table === 'friendships') {
-          if (msg.includes('duplicate key') || response.status === 409) {
-              return { success: true, message: 'Existing request' };
-          }
-      }
       throw new Error(msg);
     }
-    return response.json();
+    const result = await response.json();
+    // Supabase returns modified rows as an array when representation is requested
+    // Flatten if it's a single item modification
+    if (Array.isArray(result) && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        return result.length > 0 ? result[0] : result;
+    }
+    return result;
   } catch (err: any) {
     if (err.message?.includes('duplicate key')) return { success: true };
     throw err;
@@ -166,7 +168,7 @@ export const cloudClient = {
                 'Prefer': 'return=representation'
             },
             body: JSON.stringify({ status: 'ACCEPTED' })
-        });
+        }).then(r => r.json());
     }
 
     if (url === '/social/reject') {

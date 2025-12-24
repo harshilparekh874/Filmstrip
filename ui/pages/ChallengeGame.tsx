@@ -19,7 +19,15 @@ export const ChallengeGame: React.FC = () => {
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
 
-  // 1. Initial Data Fetching & Sync (No recursion)
+  // 1. Sync localChallenge immediately if it's already in the store (e.g. just created)
+  useEffect(() => {
+    const found = challenges.find(c => c.id === id);
+    if (found) {
+        setLocalChallenge(found);
+    }
+  }, [challenges, id]);
+
+  // 2. Initial Data Fetching (fallback only)
   useEffect(() => {
     const init = async () => {
       if (!user?.id || !id) return;
@@ -27,21 +35,15 @@ export const ChallengeGame: React.FC = () => {
       const found = challenges.find(c => c.id === id);
       if (!found && isInitialLoadRef.current) {
         isInitialLoadRef.current = false;
-        await fetchSocial(user.id);
-      } else if (found) {
-        setLocalChallenge(found);
+        try {
+            await fetchSocial(user.id);
+        } catch (err) {
+            setError("Failed to load battle data.");
+        }
       }
     };
     init();
-  }, [id, user?.id]); // Removed 'challenges' and 'fetchSocial' to prevent loops
-
-  // 2. Keep localChallenge in sync with store updates (multiplayer turns)
-  useEffect(() => {
-    const found = challenges.find(c => c.id === id);
-    if (found) {
-      setLocalChallenge(found);
-    }
-  }, [challenges, id]);
+  }, [id, user?.id, fetchSocial]);
 
   // 3. Resolve Movie Metadata in background
   useEffect(() => {
@@ -78,9 +80,9 @@ export const ChallengeGame: React.FC = () => {
       if (current && current.turnUserId !== user.id && current.status !== 'COMPLETED') {
         fetchSocial(user.id);
       }
-    }, 5000);
+    }, 6000);
     return () => clearInterval(interval);
-  }, [user?.id, id, fetchSocial]); // Challenges removed from deps to avoid loop
+  }, [user?.id, id, fetchSocial]);
 
   // Derive turn state
   const isMyTurn = localChallenge?.turnUserId === user?.id;
