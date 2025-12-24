@@ -52,8 +52,10 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
         } else if (table === 'friendships') {
-            // Use quoted column names from SQL schema for strict matching
             if (url.includes('pending')) {
+                // IMPORTANT: Use the exact column names as defined in SQL
+                // We also add a select query to join the sender's user info
+                params.append('select', '*,from:userId(*)');
                 params.append('friendId', `eq.${body.userId}`);
                 params.append('status', `eq.PENDING`);
             } else if (url.includes('outgoing')) {
@@ -97,18 +99,14 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
       const msg = err.message || `API Error ${response.status}`;
       
-      // SPECIAL CASE: Ignore duplicate friendship requests (already exists)
       if (url.includes('social/request') || table === 'friendships') {
           if (msg.includes('duplicate key') || response.status === 409) {
-              console.log("Friendship already exists, ignoring duplicate error.");
-              return { success: true, message: 'Existing request found' };
+              return { success: true, message: 'Existing request' };
           }
       }
 
       if (response.status === 404 || (err.message?.includes('relation') && err.message?.includes('does not exist'))) {
-          alert(`DATABASE ERROR: Resource "${table}" not found.\n\nPlease check your Supabase SQL Editor.`);
-      } else {
-          console.error(`Supabase Request Failed: ${msg}`, { method, url });
+          alert(`DATABASE ERROR: Resource "${table}" not found.`);
       }
       
       throw new Error(msg);
@@ -116,7 +114,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     return response.json();
   } catch (err: any) {
     if (err.message?.includes('duplicate key')) return { success: true };
-    console.error(`Supabase Network Error [${method} ${url}]:`, err);
     throw err;
   }
 };
@@ -133,46 +130,29 @@ export const cloudClient = {
     if (url === '/auth/otp') {
         const response = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
             method: 'POST',
-            headers: { 
-                'apikey': SUPABASE_KEY, 
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json' 
-            },
+            headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: body.email })
         });
-        return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || r.message || "OTP Failed"); });
+        return response.ok ? { success: true } : response.json().then(r => { throw new Error(r.msg || "OTP Failed"); });
     }
 
     if (url === '/auth/verify') {
         const verify = async (type: string) => {
             return fetch(`${SUPABASE_URL}/auth/v1/verify`, {
                 method: 'POST',
-                headers: { 
-                    'apikey': SUPABASE_KEY, 
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
-                    'Content-Type': 'application/json' 
-                },
+                headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: body.email, token: body.code, type })
             });
         };
-
         let response = await verify('email');
-        if (!response.ok) {
-            const secondResponse = await verify('signup');
-            if (secondResponse.ok) response = secondResponse;
-        }
-
+        if (!response.ok) response = await verify('signup');
         const res = await response.json();
-        if (!response.ok) {
-            throw new Error(res.msg || res.error_description || "Invalid code.");
-        }
-
+        if (!response.ok) throw new Error(res.msg || "Invalid code.");
         localStorage.setItem('supabase.auth.token', res.access_token);
         return { success: true, isNewUser: !res.user?.last_sign_in_at, userId: res.user?.id };
     }
 
     if (url === '/social/request') {
-        // Explicitly map body to match SQL quoted column names
         return supabaseRequest('POST', '/friendships', { 
             userId: body.userId, 
             friendId: body.friendId, 
@@ -181,7 +161,6 @@ export const cloudClient = {
     }
     
     if (url === '/social/accept') {
-        // Use exact column names in query string
         const idQuery = `userId=eq.${body.senderId}&friendId=eq.${body.userId}`;
         return fetch(`${SUPABASE_URL}/rest/v1/friendships?${idQuery}`, {
             method: 'PATCH',
@@ -220,13 +199,7 @@ export const cloudClient = {
     const movieId = params.get('movieId');
     const userId = params.get('userId');
     const table = getTableFromUrl(url);
-    
-    let query = '';
-    if (movieId) {
-        query = `movieId=eq.${movieId}&userId=eq.${userId}`;
-    } else {
-        query = `id=eq.${params.get('id')}`;
-    }
+    const query = movieId ? `movieId=eq.${movieId}&userId=eq.${userId}` : `id=eq.${params.get('id')}`;
     
     return fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
         method: 'DELETE',

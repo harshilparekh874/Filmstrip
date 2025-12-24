@@ -11,13 +11,12 @@ export const socialRepo = {
     const res = await cloudClient.get('/social/requests/pending', { userId }) as any[];
     if (!Array.isArray(res)) return [];
     
-    // In a pending request, 'userId' is the sender and 'friendId' is me.
-    // We want to return the 'userId' (sender) so the receiver can accept it.
     return res.map(f => {
+      // In Supabase, the joined 'from' field will be available if using select=*,from:userId(*)
       const senderId = f.userId || f.id;
       return {
         id: senderId, 
-        from: f.from || { id: senderId, name: 'Unknown User' }
+        from: f.from || { id: senderId, name: 'New Request' }
       };
     }).filter(r => r.id);
   },
@@ -25,8 +24,6 @@ export const socialRepo = {
   getOutgoingRequests: async (userId: string): Promise<string[]> => {
     const res = await cloudClient.get('/social/requests/outgoing', { userId }) as any[];
     if (!Array.isArray(res)) return [];
-    
-    // Normalize: Supabase returns objects [{friendId: '...'}], Mock returns strings
     return res.map(f => typeof f === 'string' ? f : f.friendId).filter(Boolean);
   },
 
