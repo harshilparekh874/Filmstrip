@@ -1,12 +1,12 @@
 
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { userRepo } from '../../data/repositories/userRepo';
 import { movieRepo } from '../../data/repositories/movieRepo';
 import { useAuthStore } from '../../state/authStore';
 import { useSocialStore } from '../../state/socialStore';
 import { useMovieStore } from '../../state/movieStore';
-import { User, UserMovieEntry, Movie, ChallengeType } from '../../core/types/models';
+import { User, UserMovieEntry, Movie, ChallengeType, WatchStatus } from '../../core/types/models';
 import { MovieCard } from '../components/MovieCard';
 
 export const FriendProfile: React.FC = () => {
@@ -14,12 +14,10 @@ export const FriendProfile: React.FC = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuthStore();
   const { createChallenge } = useSocialStore();
-  const { movies: storeMovies } = useMovieStore();
+  const { movies: storeMovies, seedMovies } = useMovieStore();
 
   const [friend, setFriend] = useState<User | null>(null);
   const [entries, setEntries] = useState<UserMovieEntry[]>([]);
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [favMovie, setFavMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
   
   const [showModal, setShowModal] = useState(false);
@@ -34,20 +32,28 @@ export const FriendProfile: React.FC = () => {
       setLoading(true);
       
       try {
-        const [u, e, m] = await Promise.all([
+        const [u, e] = await Promise.all([
           userRepo.getUserById(id),
-          movieRepo.getUserEntries(id),
-          movieRepo.getAllMovies(),
+          movieRepo.getUserEntries(id)
         ]);
 
         setFriend(u || null);
-        setEntries(Array.isArray(e) ? e : []);
-        setMovies(Array.isArray(m) ? m : []);
+        const safeEntries = Array.isArray(e) ? e : [];
+        setEntries(safeEntries);
 
-        if (u?.favoriteMovieId) {
-          const fm = await movieRepo.getMovieById(u.favoriteMovieId);
-          setFavMovie(fm || null);
+        // Fetch missing movie metadata for the friend's entries
+        const missingIds = safeEntries
+          .map(entry => entry.movieId)
+          .filter(mId => !storeMovies.find(sm => sm.id === mId));
+
+        if (missingIds.length > 0) {
+          const fetched = await Promise.all(
+            missingIds.slice(0, 20).map(mId => movieRepo.getMovieById(mId).catch(() => null))
+          );
+          const validMovies = fetched.filter(Boolean) as Movie[];
+          if (validMovies.length > 0) seedMovies(validMovies);
         }
+
       } catch (err) {
         console.error("Failed to load friend profile:", err);
       } finally {
@@ -55,7 +61,7 @@ export const FriendProfile: React.FC = () => {
       }
     };
     loadData();
-  }, [id]);
+  }, [id, seedMovies]);
 
   const handleTypeChange = (type: ChallengeType) => {
     setGameType(type);
@@ -91,7 +97,7 @@ export const FriendProfile: React.FC = () => {
       const challenge = await createChallenge({
         creatorId: currentUser.id,
         recipientId: friend.id,
-        turnUserId: friend.id, // Recipient plays the quiz/bracket
+        turnUserId: friend.id,
         type: gameType,
         size: gameSize as any,
         movieIds: challengeIds,
@@ -111,14 +117,43 @@ export const FriendProfile: React.FC = () => {
 
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div></div>;
 
-  const bracketSizes = [16, 32, 64];
-  const tierListSizes = [10, 20, 50];
-  const guessSizes = [5, 10, 20];
+  const renderSection = (title: string, status: WatchStatus, icon: string) => {
+    const filteredEntries = entries
+      .filter(e => e.status === status)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-  let currentSizes = gameType === 'BRACKET' ? bracketSizes : (gameType === 'TIERLIST' ? tierListSizes : guessSizes);
+    if (filteredEntries.length === 0) return null;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-2">
+          <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+            <span>{icon}</span>
+            {title}
+          </h2>
+          <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+            {filteredEntries.length}
+          </span>
+        </div>
+        <div className="flex gap-4 overflow-x-auto pb-6 custom-scrollbar px-2 -mx-2">
+          {filteredEntries.map(entry => {
+            const movie = storeMovies.find(m => m.id === entry.movieId);
+            if (!movie) return (
+              <div key={entry.movieId} className="w-32 h-48 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse flex-shrink-0" />
+            );
+            return (
+              <div key={movie.id} className="w-32 flex-shrink-0">
+                <MovieCard movie={movie} badge={entry.rating ? `${entry.rating}/10` : undefined} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12 pb-32">
       <header className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden relative transition-colors">
         <div className="absolute top-0 left-0 right-0 h-32 bg-indigo-600/5 dark:bg-indigo-400/5" />
         <div className="relative flex flex-col items-center text-center">
@@ -133,7 +168,18 @@ export const FriendProfile: React.FC = () => {
         </div>
       </header>
 
-      {/* Challenge Configuration Modal */}
+      <div className="space-y-12">
+        {renderSection('Watched Recently', 'WATCHED', '✅')}
+        {renderSection('Watchlist', 'WATCH_LATER', '🕒')}
+        {renderSection('Dropped', 'DROPPED', '✖️')}
+        
+        {entries.length === 0 && (
+          <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+            <p className="text-slate-400 italic">This friend hasn't tracked any movies yet.</p>
+          </div>
+        )}
+      </div>
+
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 border border-slate-200 dark:border-slate-800 space-y-8 max-h-[90vh] overflow-y-auto">
@@ -169,58 +215,29 @@ export const FriendProfile: React.FC = () => {
             <div className="space-y-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pool Size</label>
               <div className="grid grid-cols-3 gap-2">
-                {currentSizes.map(s => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                        setGameSize(s);
-                        // Reset time limit based on defaults for Guess mode
-                        if (gameType === 'GUESS_THE_MOVIE') {
-                            if (s === 5) setTimeLimit(5);
-                            else if (s === 10) setTimeLimit(10);
-                            else if (s === 20) setTimeLimit(15);
-                        }
-                    }}
-                    className={`py-3 rounded-xl font-black text-sm transition ${
-                      gameSize === s 
-                      ? 'bg-indigo-600 text-white' 
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                    }`}
-                  >
-                    {s} Items
-                  </button>
-                ))}
+                {[16, 32, 64].map(s => {
+                    const sizes = gameType === 'BRACKET' ? [16, 32, 64] : (gameType === 'TIERLIST' ? [10, 20, 50] : [5, 10, 20]);
+                    if (!sizes.includes(s) && gameType !== 'BRACKET') return null;
+                    return (
+                        <button
+                          key={s}
+                          onClick={() => setGameSize(s)}
+                          className={`py-3 rounded-xl font-black text-sm transition ${
+                            gameSize === s 
+                            ? 'bg-indigo-600 text-white' 
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          {s} Items
+                        </button>
+                    );
+                })}
               </div>
             </div>
 
-            {gameType === 'GUESS_THE_MOVIE' && (
-                <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
-                        Time Limit: {timeLimit} Minutes
-                    </label>
-                    <input 
-                        type="range" 
-                        min="1" 
-                        max={gameSize === 5 ? 10 : (gameSize === 10 ? 15 : 20)}
-                        value={timeLimit}
-                        onChange={(e) => setTimeLimit(parseInt(e.target.value))}
-                        className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                    />
-                </div>
-            )}
-
             <div className="flex gap-3 pt-4">
-              <button 
-                onClick={() => setShowModal(false)}
-                className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl transition"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleStartChallenge}
-                disabled={isCreating}
-                className="flex-[2] py-4 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50 shadow-lg"
-              >
+              <button onClick={() => setShowModal(false)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl transition">Cancel</button>
+              <button onClick={handleStartChallenge} disabled={isCreating} className="flex-[2] py-4 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50 shadow-lg">
                 {isCreating ? 'Creating...' : 'Start Battle'}
               </button>
             </div>

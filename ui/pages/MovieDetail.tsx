@@ -5,7 +5,9 @@ import { useAuthStore } from '../../state/authStore';
 import { useMovieStore } from '../../state/movieStore';
 import { WatchStatus, Movie } from '../../core/types/models';
 import { movieRepo } from '../../data/repositories/movieRepo';
+import { tmdbApi } from '../../data/api/tmdbApi';
 import { generateDetailReason } from '../../core/recommendations/engine';
+import { MovieCard } from '../components/MovieCard';
 
 export const MovieDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +16,7 @@ export const MovieDetail: React.FC = () => {
   const { userEntries, movies, updateEntry, deleteEntry } = useMovieStore();
 
   const [movie, setMovie] = useState<Movie | null>(null);
+  const [similarMovies, setSimilarMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
   const [aiReason, setAiReason] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -28,7 +31,7 @@ export const MovieDetail: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const fetchMovie = async () => {
+    const fetchMovieData = async () => {
       if (!id) return;
       setLoading(true);
       const data = await movieRepo.getMovieById(id);
@@ -36,6 +39,18 @@ export const MovieDetail: React.FC = () => {
         setMovie(data);
         setLoading(false);
         
+        // Reset AI state for new movie
+        aiRequestedRef.current = false;
+        setAiReason('');
+        
+        // Fetch similar movies
+        try {
+          const similar = await tmdbApi.getSimilarMovies(id);
+          setSimilarMovies(similar.slice(0, 4));
+        } catch (err) {
+          console.warn("Failed to fetch similar movies");
+        }
+
         if (user && !aiRequestedRef.current) {
           aiRequestedRef.current = true;
           setIsAiLoading(true);
@@ -52,7 +67,7 @@ export const MovieDetail: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchMovie();
+    fetchMovieData();
   }, [id, user, userEntries, movies]);
 
   useEffect(() => {
@@ -61,8 +76,13 @@ export const MovieDetail: React.FC = () => {
       setRating(entry.rating || 0);
       setDroppedReason(entry.droppedReason || '');
       setNotes(entry.notes || '');
+    } else {
+      setStatus('');
+      setRating(0);
+      setDroppedReason('');
+      setNotes('');
     }
-  }, [entry]);
+  }, [entry, id]);
 
   if (loading) return (
     <div className="flex h-64 items-center justify-center">
@@ -99,7 +119,7 @@ export const MovieDetail: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32">
       <button 
         onClick={() => navigate(-1)}
         className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold flex items-center gap-2 px-2"
@@ -131,21 +151,19 @@ export const MovieDetail: React.FC = () => {
               </div>
             </div>
 
-            {/* Storyline Section */}
             {movie.overview && (
               <div className="space-y-3">
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Storyline</h3>
-                <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed line-clamp-4 hover:line-clamp-none transition-all cursor-pointer">
+                <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">
                   {movie.overview}
                 </p>
               </div>
             )}
 
-            {/* Cast Section */}
             {movie.cast && movie.cast.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Top Cast</h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar px-2 -mx-2">
                   {movie.cast.map(person => (
                     <div key={person.id} className="flex-shrink-0 w-20 text-center">
                       <div className="w-16 h-16 rounded-full overflow-hidden mx-auto bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
@@ -163,7 +181,6 @@ export const MovieDetail: React.FC = () => {
               </div>
             )}
 
-            {/* Tracking Controls */}
             <div className="space-y-8 pt-4 border-t border-slate-100 dark:border-slate-800">
               <div>
                 <label className="block text-[10px] font-black text-slate-400 mb-4 uppercase tracking-widest">Set Status</label>
@@ -200,7 +217,7 @@ export const MovieDetail: React.FC = () => {
 
               <div className="pt-4 flex gap-3">
                 {status && (
-                  <button onClick={handleSave} disabled={isSaving} className="flex-1 bg-indigo-600 text-white font-black uppercase tracking-widest py-4 rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50">
+                  <button onClick={handleSave} disabled={isSaving} className="flex-1 bg-indigo-600 text-white font-black uppercase tracking-widest py-4 rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50 shadow-lg">
                     {isSaving ? 'Saving...' : 'Update Entry'}
                   </button>
                 )}
@@ -228,6 +245,24 @@ export const MovieDetail: React.FC = () => {
           )}
         </div>
       </section>
+
+      {/* Similar Movies Section */}
+      {similarMovies.length > 0 && (
+        <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="flex items-center gap-4 px-2">
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
+              Similar to <span className="text-indigo-600 dark:text-indigo-400">"{movie.title}"</span>
+            </h2>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 px-2">
+            {similarMovies.map(m => (
+              <MovieCard key={m.id} movie={m} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };
