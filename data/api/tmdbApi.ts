@@ -93,16 +93,61 @@ export const tmdbApi = {
     return mapToMovie({ ...m, media_type: type });
   },
 
-  /**
-   * getSimilarMovies
-   * Switched to the /similar endpoint which uses thematic metadata (keywords/genres)
-   * rather than /recommendations which is user-behavior based.
-   */
   getSimilarMovies: async (tmdbId: string): Promise<Movie[]> => {
     const parts = tmdbId.split('-');
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
-    const data = await fetchTmdb(`/${type}/${numericId}/similar?language=en-US&page=1`);
-    return (data.results || []).slice(0, 15).map(m => mapToMovie({ ...m, media_type: type }));
+    
+    // 1. Get source movie details for ranking
+    const source = await tmdbApi.getMovieDetails(tmdbId);
+    if (!source) return [];
+
+    // 2. Fetch from both Similar (Keywords) and Recommendations (Behavior) for a richer pool
+    const [similarData, recsData] = await Promise.all([
+      fetchTmdb(`/${type}/${numericId}/similar?language=en-US&page=1`),
+      fetchTmdb(`/${type}/${numericId}/recommendations?language=en-US&page=1`)
+    ]);
+
+    const rawResults = [...(similarData.results || []), ...(recsData.results || [])];
+    const seen = new Set<number>();
+    const moviePool = rawResults
+        .filter(m => {
+          if (seen.has(m.id) || m.id.toString() === numericId) return false;
+          seen.add(m.id);
+          return true;
+        })
+        .map(m => mapToMovie({ ...m, media_type: type }));
+
+    // 3. Weighted Ranking Algorithm
+    // This prevents "Zootopia" (Animation/Family 2016) matching with "Slapstick" (Comedy 1920)
+    return moviePool
+      .map(target => {
+        let score = 0;
+        
+        // A. Genre Match (High Weight)
+        const commonGenres = target.genres.filter(g => source.genres.includes(g));
+        score += commonGenres.length * 10;
+        
+        // Animation Lock: If source is Animation, target MUST be Animation to stay high rank
+        const isAnimationSource = source.genres.includes('Animation');
+        const isAnimationTarget = target.genres.includes('Animation');
+        if (isAnimationSource && isAnimationTarget) score += 50;
+        if (isAnimationSource && !isAnimationTarget) score -= 30;
+
+        // B. Era/Temporal Proximity (Medium Weight)
+        // Movies within 10 years are highly relevant, 50 years+ are penalized
+        const yearDiff = Math.abs(source.year - target.year);
+        if (yearDiff <= 5) score += 20;
+        else if (yearDiff <= 15) score += 10;
+        else if (yearDiff >= 40) score -= 20;
+
+        // C. Popularity Fallback
+        // (Just a tiny boost for newer, well-known titles)
+        if (target.year > 2010) score += 5;
+
+        return { movie: target, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.movie);
   }
 };
