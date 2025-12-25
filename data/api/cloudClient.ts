@@ -8,11 +8,9 @@ const rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
 const SUPABASE_URL = rawUrl.replace(/\/+$/, '');
 const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
 
-const isProduction = !!(SUPABASE_URL && SUPABASE_KEY);
+// Check if we have real production keys
+const isProduction = !!(SUPABASE_URL && SUPABASE_KEY && SUPABASE_URL.includes('supabase'));
 
-/**
- * Route Mapping: Maps application paths to actual Supabase REST tables
- */
 const getTableFromUrl = (url: string): string => {
   const path = url.replace(/^\/+/, '').split('?')[0].toLowerCase();
   
@@ -43,7 +41,6 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
   if (method === 'GET') {
     const params = new URLSearchParams();
     
-    // Explicitly handle friendship queries with correct column casing
     if (body?.userId && table === 'friendships') {
         if (url.includes('pending')) {
             params.append('friendId', `eq.${body.userId}`);
@@ -56,11 +53,9 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
             params.append('status', `eq.ACCEPTED`);
         }
     } 
-    // Challenges use creatorId or recipientId - do NOT add generic userId param
     else if (body?.userId && table === 'challenges') {
         params.append('or', `(creatorId.eq.${body.userId},recipientId.eq.${body.userId})`);
     } 
-    // Generic userId param for other tables (like entries)
     else if (body?.userId) {
         if (table === 'users') {
             params.append('id', `eq.${body.userId}`);
@@ -99,12 +94,9 @@ const supabaseRequest = async (method: string, url: string, body?: any) => {
     const response = await fetch(targetUrl, options);
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Unknown Error' }));
-      const msg = err.message || `API Error ${response.status}`;
-      throw new Error(msg);
+      throw new Error(err.message || `API Error ${response.status}`);
     }
     const result = await response.json();
-    // Supabase returns modified rows as an array when representation is requested
-    // Flatten if it's a single item modification
     if (Array.isArray(result) && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
         return result.length > 0 ? result[0] : result;
     }

@@ -16,6 +16,13 @@ export interface User {
   createdAt: number;
 }
 
+export interface CastMember {
+  id: number;
+  name: string;
+  character: string;
+  profilePath?: string;
+}
+
 export interface Movie {
   id: string;
   title: string;
@@ -23,6 +30,9 @@ export interface Movie {
   posterUrl?: string;
   genres: string[];
   runtimeMins?: number;
+  overview?: string;
+  tagline?: string;
+  cast?: CastMember[];
 }
 
 export interface UserMovieEntry {
@@ -50,12 +60,12 @@ export interface SocialChallenge {
   id: string;
   creatorId: string;
   recipientId: string;
-  turnUserId: string; // Whose turn it is
+  turnUserId: string; 
   type: ChallengeType;
   size: 10 | 16 | 20 | 32 | 50 | 64;
   status: ChallengeStatus;
   movieIds: string[];
-  results?: any; // Stores multiplayer game state
+  results?: any; 
   timestamp: number;
 }
 

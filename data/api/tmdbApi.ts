@@ -1,15 +1,10 @@
 
-import { Movie } from '../../core/types/models';
+import { Movie, CastMember } from '../../core/types/models';
 
-/**
- * TMDB API - Production Bridge
- * In Production: Route these through your backend to hide the API KEY.
- */
 const TMDB_API_KEY: string = 'd7c9932ca6eaed0388919da906dcedc0';
 const BASE_URL = 'https://api.themoviedb.org/3';
 const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 
-// Change this to true if you have implemented a proxy route on your real backend
 const USE_PROXY = !!(import.meta as any).env?.VITE_API_URL;
 
 const fetchTmdb = async (endpoint: string) => {
@@ -33,7 +28,7 @@ const GENRE_MAP: Record<number, string> = {
 };
 
 const mapToMovie = (m: any): Movie => {
-  const isTv = m.media_type === 'tv' || !m.title;
+  const isTv = m.media_type === 'tv' || (!m.title && m.name);
   const dateStr = isTv ? m.first_air_date : m.release_date;
   
   const resolvedGenres = m.genres 
@@ -43,20 +38,29 @@ const mapToMovie = (m: any): Movie => {
       })
     : (m.genre_ids || []).map((id: number) => GENRE_MAP[id]).filter(Boolean);
 
+  const cast: CastMember[] = m.credits?.cast?.slice(0, 10).map((c: any) => ({
+    id: c.id,
+    name: c.name,
+    character: c.character,
+    profilePath: c.profile_path ? `${IMAGE_BASE_URL}${c.profile_path}` : undefined
+  })) || [];
+
   return {
     id: `tmdb-${isTv ? 'tv' : 'movie'}-${m.id}`,
     title: isTv ? m.name : m.title,
     year: dateStr ? new Date(dateStr).getFullYear() : 0,
     posterUrl: m.poster_path ? `${IMAGE_BASE_URL}${m.poster_path}` : 'https://via.placeholder.com/300x450?text=No+Poster',
     genres: resolvedGenres,
-    runtimeMins: 0
+    runtimeMins: m.runtime || (m.episode_run_time ? m.episode_run_time[0] : 0),
+    overview: m.overview || '',
+    tagline: m.tagline || '',
+    cast: cast
   };
 };
 
 export const tmdbApi = {
   getPopularMovies: async (): Promise<Movie[]> => {
-    // Fetch 5 pages to get the Top 100
-    const pages = [1, 2, 3, 4, 5];
+    const pages = [1, 2, 3];
     const results = await Promise.all(
         pages.map(page => fetchTmdb(`/trending/all/week?page=${page}`))
     );
@@ -73,11 +77,6 @@ export const tmdbApi = {
         .map(mapToMovie);
   },
 
-  getTopRatedMovies: async (page = 1): Promise<Movie[]> => {
-    const data = await fetchTmdb(`/movie/top_rated?language=en-US&page=${page}`);
-    return (data.results || []).map(m => mapToMovie({ ...m, media_type: 'movie' }));
-  },
-
   searchMovies: async (query: string): Promise<Movie[]> => {
     if (!query) return [];
     const data = await fetchTmdb(`/search/multi?query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`);
@@ -90,7 +89,8 @@ export const tmdbApi = {
     const parts = tmdbId.split('-');
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
-    const m = await fetchTmdb(`/${type}/${numericId}?language=en-US`);
+    // Append credits to get the cast in one go
+    const m = await fetchTmdb(`/${type}/${numericId}?language=en-US&append_to_response=credits`);
     return mapToMovie({ ...m, media_type: type });
   },
 
@@ -99,6 +99,6 @@ export const tmdbApi = {
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
     const data = await fetchTmdb(`/${type}/${numericId}/recommendations?language=en-US&page=1`);
-    return (data.results || []).slice(0, 20).map(m => mapToMovie({ ...m, media_type: type }));
+    return (data.results || []).slice(0, 15).map(m => mapToMovie({ ...m, media_type: type }));
   }
 };

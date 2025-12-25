@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import { User } from '../core/types/models';
 import { storage } from '../data/storage/WebStorage';
 import { cloudClient } from '../data/api/cloudClient';
+import { useMovieStore } from './movieStore';
+import { useSocialStore } from './socialStore';
 
 interface AuthState {
   user: User | null;
@@ -30,6 +32,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const storedUser = await storage.getItem<User>('auth_user_data');
     if (storedUser) {
       set({ user: storedUser });
+      // Trigger side-effect fetches to ensure data is fresh and social is synced
+      useMovieStore.getState().fetchData(storedUser.id);
+      useSocialStore.getState().fetchSocial(storedUser.id);
     }
     set({ isLoading: false });
   },
@@ -41,7 +46,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   verifyOtp: async (code: string) => {
     const email = get().emailContext;
-    if (!email) throw new Error("Email context lost. Please restart.");
+    if (!email) throw new Error("Email context lost.");
     const res = await cloudClient.post('/auth/verify', { email, code }) as any;
     if (res.userId) {
         set({ userIdContext: res.userId });
@@ -56,6 +61,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (user) {
           await storage.setItem('auth_user_data', user);
           set({ user });
+          useMovieStore.getState().fetchData(user.id, true);
+          useSocialStore.getState().fetchSocial(user.id);
           return true;
         }
         return false;
@@ -68,8 +75,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signup: async (userData: any) => {
     const email = get().emailContext;
     const userId = get().userIdContext;
-    
-    // CRITICAL: Filter out fields that don't belong in the database 'users' table
     const { code, email: discardedEmail, ...profileFields } = userData;
 
     const finalData = { 
@@ -79,7 +84,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         name: `${userData.firstName} ${userData.lastName}`.trim(),
     };
 
-    // Remove any leftover temporary UI fields
     delete (finalData as any).movieSearch;
     delete (finalData as any).movieResults;
 

@@ -2,9 +2,6 @@
 import { Movie, UserMovieEntry, Recommendation, User } from '../types/models';
 import { GoogleGenAI } from '@google/genai';
 
-/**
- * Intelligent recommendation logic for General Discovery.
- */
 export const getRecommendations = (
   allMovies: Movie[],
   userEntries: UserMovieEntry[],
@@ -56,19 +53,9 @@ export const getRecommendations = (
   return recommendations.sort((a, b) => b.score - a.score).slice(0, 15);
 };
 
-/**
- * SMART GENRE MATCHING ENGINE
- * 
- * Logic:
- * - If source movie has 1 genre: MatchCount must be 1.
- * - If source movie has 2+ genres: MatchCount must be 2 (High Quality).
- */
 export const findSimilarByGenre = (source: Movie, pool: Movie[], count = 10): Movie[] => {
   if (!source || !source.genres || source.genres.length === 0) return [];
-  
   const sourceGenres = new Set(source.genres.map(g => g.toLowerCase()));
-  
-  // Set threshold based on how many genres the source actually has
   const threshold = source.genres.length >= 2 ? 2 : 1;
 
   return pool
@@ -83,9 +70,6 @@ export const findSimilarByGenre = (source: Movie, pool: Movie[], count = 10): Mo
     .map(x => x.movie);
 };
 
-/**
- * AI Logic for group justifications.
- */
 export const generateFormalGroupReasons = async (
   sourceMovie: Movie,
   sourceEntry: UserMovieEntry,
@@ -97,16 +81,15 @@ export const generateFormalGroupReasons = async (
 
   try {
     const ai = new GoogleGenAI({ apiKey: apiKey });
-    
     const prompt = `
       Task: Movie link justification.
       User: ${user.name}
       Base Movie: ${sourceMovie.title} (${sourceMovie.year})
       
-      Explain why someone who liked "${sourceMovie.title}" would enjoy these specific movies based on their shared themes or genres:
+      Explain why someone who liked "${sourceMovie.title}" would enjoy these specifically:
       ${targetMovies.map(m => `- ${m.title}`).join('\n')}
       
-      Return a JSON object: { "Movie Title": "One short sentence explaining the cinematic link" }
+      Return a clean JSON object: { "Movie Title": "One short sentence link" }
     `;
 
     const response = await ai.models.generateContent({
@@ -115,6 +98,7 @@ export const generateFormalGroupReasons = async (
       config: { responseMimeType: "application/json" }
     });
 
+    // Directly access .text property
     let rawText = response.text || '{}';
     if (rawText.includes('```json')) {
       rawText = rawText.split('```json')[1].split('```')[0].trim();
@@ -126,9 +110,6 @@ export const generateFormalGroupReasons = async (
   }
 };
 
-/**
- * Single movie AI reasoning.
- */
 export const generateDetailReason = async (
   movie: Movie,
   user: User,
@@ -140,14 +121,14 @@ export const generateDetailReason = async (
 
   try {
     const ai = new GoogleGenAI({ apiKey: apiKey });
-    const prompt = `Why should ${user.name} watch ${movie.title}? They like ${user.favoriteGenres.join(', ')}. One sentence.`;
+    const prompt = `Why should ${user.name} watch ${movie.title}? They love ${user.favoriteGenres.join(', ')}. Short one sentence.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
 
-    return response.text?.trim() || 'Matches your viewing patterns.';
+    return response.text?.trim() || 'Matches your patterns.';
   } catch (err) {
     return 'Analysis based on preference patterns.';
   }
