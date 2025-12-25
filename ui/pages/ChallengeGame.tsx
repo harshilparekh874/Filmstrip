@@ -85,27 +85,32 @@ export const ChallengeGame: React.FC = () => {
       
       if (!currentMovieId) return;
 
-      // 1. PRIORITIZED FETCH: Get the current movie details NOW
+      // 1. PRIORITIZED FETCH: Get the current movie details NOW (includes credits/cast)
       const currentMovie = movies.find(m => m.id === currentMovieId);
-      if (!currentMovie || !currentMovie.cast || currentMovie.cast.length === 0) {
-          if (!fetchedIdsRef.current.has(currentMovieId)) {
-              fetchedIdsRef.current.add(currentMovieId);
-              const movie = await movieRepo.getMovieById(currentMovieId).catch(() => null);
-              if (movie) seedMovies([movie]);
-          }
+      // Ensure we have cast data specifically
+      const needsFullCast = !currentMovie || !currentMovie.cast || currentMovie.cast.length === 0;
+      
+      if (needsFullCast && !fetchedIdsRef.current.has(currentMovieId)) {
+          fetchedIdsRef.current.add(currentMovieId);
+          // Trigger immediate fetch
+          movieRepo.getMovieById(currentMovieId).then(movie => {
+            if (movie) seedMovies([movie]);
+          }).catch(() => null);
       }
 
-      // 2. BACKGROUND FETCH: Get the rest in parallel
-      const missingIds = localChallenge.movieIds.filter(mId => {
+      // 2. BACKGROUND FETCH: Fire off ALL remaining movies in the challenge in parallel
+      // This ensures that as you play, the NEXT movies already have their cast data ready.
+      const otherIds = localChallenge.movieIds.filter(mId => mId !== currentMovieId);
+      const missingOtherIds = otherIds.filter(mId => {
         const m = movies.find(sm => sm.id === mId);
         return (!m || !m.cast || m.cast.length === 0) && !fetchedIdsRef.current.has(mId);
       });
 
-      if (missingIds.length > 0) {
-        missingIds.forEach(id => fetchedIdsRef.current.add(id));
+      if (missingOtherIds.length > 0) {
+        missingOtherIds.forEach(id => fetchedIdsRef.current.add(id));
         
-        // Execute all background fetches in parallel (not batched) for maximum speed
-        Promise.all(missingIds.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
+        // Parallel burst
+        Promise.all(missingOtherIds.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
           .then(results => {
             const valid = results.filter(Boolean) as Movie[];
             if (valid.length > 0) seedMovies(valid);

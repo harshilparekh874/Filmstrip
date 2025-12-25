@@ -25,12 +25,23 @@ export const Social: React.FC = () => {
   
   const [userQuery, setUserQuery] = useState('');
 
+  // Initial Data Fetch
   useEffect(() => {
     if (currentUser?.id) {
       fetchSocial(currentUser.id);
       fetchMovies(currentUser.id);
     }
   }, [currentUser, fetchSocial, fetchMovies]);
+
+  // LIVE POLLING: Refresh social data every 5 seconds to catch new challenges instantly
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const interval = setInterval(() => {
+      // Background sync without triggering full page loading state
+      fetchSocial(currentUser.id);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id, fetchSocial]);
 
   const filteredDiscovery = useMemo(() => {
     if (!allUsers) return [];
@@ -92,7 +103,7 @@ export const Social: React.FC = () => {
 
       {/* Challenges Section */}
       {activeChallenges.length > 0 && (
-          <section className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
+          <section className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
             <h2 className="text-xs font-black uppercase tracking-[0.2em] opacity-80 mb-6 flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
@@ -118,7 +129,7 @@ export const Social: React.FC = () => {
                     };
 
                     return (
-                        <div key={challenge.id} className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl flex items-center justify-between">
+                        <div key={challenge.id} className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl flex items-center justify-between animate-in slide-in-from-right-4">
                             <div className="flex items-center gap-4">
                                 <div className="text-2xl">{getGameIcon()}</div>
                                 <div>
