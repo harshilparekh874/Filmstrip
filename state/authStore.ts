@@ -35,28 +35,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Set the cached user immediately for perceived speed
       set({ user: cachedUser });
       
-      // PROACTIVE SYNC: Force a refresh of the user profile from the cloud
+      // CRITICAL SYNC: Proactively fetch fresh user data from "cloud"
       try {
         const users = await cloudClient.get(`/users`, { userId: cachedUser.id }) as User[];
-        const freshUser = users && users.length > 0 ? users[0] : null;
+        const freshUser = (Array.isArray(users) && users.length > 0) ? users[0] : null;
         
         if (freshUser) {
-          // Compare and update if changed
-          if (JSON.stringify(freshUser) !== JSON.stringify(cachedUser)) {
-            await storage.setItem('auth_user_data', freshUser);
-            set({ user: freshUser });
-          }
+          await storage.setItem('auth_user_data', freshUser);
+          set({ user: freshUser });
           
-          // Trigger data syncs
-          useMovieStore.getState().fetchData(freshUser.id, true);
-          useSocialStore.getState().fetchSocial(freshUser.id, true);
-        } else {
-          // If profile vanished from server, clear local
-          await storage.removeItem('auth_user_data');
-          set({ user: null });
+          // Force immediate data fetch for this user to restore watched list and social
+          await Promise.all([
+            useMovieStore.getState().fetchData(freshUser.id, true),
+            useSocialStore.getState().fetchSocial(freshUser.id, true)
+          ]);
         }
       } catch (err) {
-        // Offline or error: stick with cached and attempt silent data sync
+        // Fail gracefully to cache if offline
         useMovieStore.getState().fetchData(cachedUser.id, true);
         useSocialStore.getState().fetchSocial(cachedUser.id, true);
       }
@@ -86,13 +81,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (user) {
           await storage.setItem('auth_user_data', user);
           set({ user });
-          useMovieStore.getState().fetchData(user.id, true);
-          useSocialStore.getState().fetchSocial(user.id, true);
+          // Hard sync on login
+          await Promise.all([
+            useMovieStore.getState().fetchData(user.id, true),
+            useSocialStore.getState().fetchSocial(user.id, true)
+          ]);
           return true;
         }
         return false;
     } catch (err) {
-        console.error("Login lookup failed:", err);
         return false;
     }
   },
@@ -110,11 +107,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         createdAt: Date.now()
     };
 
-    delete (finalData as any).movieSearch;
-    delete (finalData as any).movieResults;
-
-    const results = await cloudClient.post('/auth/signup', finalData) as User[];
-    const user = Array.isArray(results) ? results[0] : results;
+    const results = await cloudClient.post('/auth/signup', finalData) as User;
+    const user = results;
     
     await storage.setItem('auth_user_data', user);
     set({ user });
@@ -124,9 +118,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser) return;
     
-    const results = await cloudClient.put(`/users/${currentUser.id}`, updates) as User[];
-    const updatedUser = Array.isArray(results) ? results[0] : results;
-    
+    const updatedUser = await cloudClient.put(`/users/${currentUser.id}`, updates) as User;
     await storage.setItem('auth_user_data', updatedUser);
     set({ user: updatedUser });
   },
