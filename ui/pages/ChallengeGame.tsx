@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/authStore';
@@ -11,12 +10,13 @@ export const ChallengeGame: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { challenges, updateChallenge, allUsers, fetchSocial } = useSocialStore();
+  const { challenges, updateChallenge, cancelChallenge, allUsers, fetchSocial } = useSocialStore();
   const { movies, seedMovies, search, searchResults, clearSearch, isSearching } = useMovieStore();
 
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
 
@@ -24,7 +24,6 @@ export const ChallengeGame: React.FC = () => {
   const [guessQuery, setGuessQuery] = useState('');
   const [hintLevel, setHintLevel] = useState(0); // 0: Cast, 1: Genres, 2: Overview
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  // Fix: Removed NodeJS.Timeout reference to avoid environment-specific type errors in browser
   const timerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -103,7 +102,6 @@ export const ChallengeGame: React.FC = () => {
     });
   }, [localChallenge, movies]);
 
-  // Guess Game specific results helpers
   const quizState = useMemo(() => {
       if (localChallenge?.type !== 'GUESS_THE_MOVIE') return null;
       return localChallenge.results || {
@@ -114,11 +112,25 @@ export const ChallengeGame: React.FC = () => {
       };
   }, [localChallenge]);
 
-  const handleManualRefresh = async () => {
-      if (!user) return;
-      setIsRefreshing(true);
-      await fetchSocial(user.id);
-      setIsRefreshing(false);
+  // Added currentQuizMovie memo to resolve 'Cannot find name' errors in JSX
+  const currentQuizMovie = useMemo(() => {
+    if (!quizState) return null;
+    return gameMovies[quizState.index] || null;
+  }, [quizState, gameMovies]);
+
+  const handleEndBattle = async () => {
+    if (!id || !user) return;
+    if (window.confirm("End this battle? No one will win and it will be removed for both players.")) {
+        setIsEnding(true);
+        try {
+            await cancelChallenge(id);
+            navigate('/social');
+        } catch (err) {
+            console.error("Failed to end battle", err);
+        } finally {
+            setIsEnding(false);
+        }
+    }
   };
 
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
@@ -126,7 +138,6 @@ export const ChallengeGame: React.FC = () => {
     await updateChallenge(id, {
       status: isFinal ? 'COMPLETED' : 'ACTIVE',
       results: newResults,
-      // In Guess mode, the turn stays with the current player until finished
       turnUserId: isFinal ? localChallenge.creatorId : localChallenge.turnUserId
     });
   };
@@ -143,7 +154,7 @@ export const ChallengeGame: React.FC = () => {
 
       const nextResults = { ...quizState };
       if (isCorrect) nextResults.correct = [...nextResults.correct, currentMovie.id];
-      else return; // Incorrect guess, let them try again
+      else return; 
 
       setGuessQuery('');
       setHintLevel(0);
@@ -231,20 +242,28 @@ export const ChallengeGame: React.FC = () => {
                 </div>
               )}
 
-              <button onClick={() => navigate('/social')} className="px-10 py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-3xl hover:bg-indigo-700 transition">Back to Social</button>
+              <div className="flex flex-col gap-4">
+                  <button onClick={() => navigate('/social')} className="px-10 py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-3xl hover:bg-indigo-700 transition">Back to Social Hub</button>
+                  <button onClick={handleEndBattle} className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline">Permanently Remove Battle Records</button>
+              </div>
           </div>
       );
   }
 
-  // --- RENDERING ACTIVE GAME ---
-  
-  const currentQuizMovie = quizState ? gameMovies[quizState.index] : null;
-
   return (
     <div className="space-y-10 pb-32 animate-in fade-in duration-300">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <button onClick={() => navigate(-1)} className="text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest mb-4">← Exit</button>
+        <div className="flex-1">
+          <div className="flex items-center gap-4 mb-4">
+              <button onClick={() => navigate(-1)} className="text-indigo-600 dark:text-indigo-400 font-black text-xs uppercase tracking-widest">← Exit</button>
+              <button 
+                onClick={handleEndBattle} 
+                disabled={isEnding}
+                className="px-4 py-1.5 border border-red-200 dark:border-red-900/40 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-full hover:bg-red-50 dark:hover:bg-red-900/10 transition"
+              >
+                {isEnding ? 'Ending...' : 'End Battle'}
+              </button>
+          </div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
             {localChallenge.type === 'BRACKET' ? 'Bracket Fight' : (localChallenge.type === 'TIERLIST' ? 'Tier List' : 'Guess the Movie')}
           </h1>
@@ -277,7 +296,7 @@ export const ChallengeGame: React.FC = () => {
                       <img 
                         src={currentQuizMovie.posterUrl} 
                         className="w-full h-full object-cover select-none pointer-events-none" 
-                        style={{ filter: 'brightness(0) contrast(0)' }} // Silhouette effect
+                        style={{ filter: 'brightness(0) contrast(0)' }} 
                       />
                       <div className="absolute inset-0 bg-indigo-600/5 mix-blend-multiply" />
                       <div className="absolute top-4 left-4 right-4 text-center">
@@ -298,7 +317,6 @@ export const ChallengeGame: React.FC = () => {
               {/* Hints & Input Column */}
               <div className="lg:col-span-8 space-y-8">
                   <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
-                      {/* Hint 1: Cast (Always visible) */}
                       <div className="space-y-3">
                           <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Initial Hint: Starring</h3>
                           <div className="flex flex-wrap gap-2">
@@ -309,7 +327,6 @@ export const ChallengeGame: React.FC = () => {
                           </div>
                       </div>
 
-                      {/* Hint 2: Genres */}
                       <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Secondary Hint: Genres</h3>
@@ -328,7 +345,6 @@ export const ChallengeGame: React.FC = () => {
                           )}
                       </div>
 
-                      {/* Hint 3: Overview */}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Final Hint: Plot</h3>
@@ -346,7 +362,6 @@ export const ChallengeGame: React.FC = () => {
                       </div>
                   </div>
 
-                  {/* Guessing Interface */}
                   <div className="relative">
                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 ml-1">Make your Guess</label>
                       <input 
@@ -380,7 +395,6 @@ export const ChallengeGame: React.FC = () => {
           </div>
       )}
 
-      {/* Bracket Logic (Existing) */}
       {localChallenge.type === 'BRACKET' && localChallenge.results?.bracketState && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               {[localChallenge.results.bracketState.items[localChallenge.results.bracketState.index], localChallenge.results.bracketState.items[localChallenge.results.bracketState.index + 1]].map((mId, idx) => {

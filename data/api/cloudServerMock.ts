@@ -2,7 +2,7 @@
 import { User, ActivityEvent, Friendship, UserMovieEntry, SocialChallenge } from '../../core/types/models';
 
 /**
- * CLOUD SERVER SIMULATOR (v3.1 - Multiplayer & Data Integrity Fixes)
+ * CLOUD SERVER SIMULATOR (v3.2 - Multiplayer, Data Integrity & Challenge Deletion)
  */
 
 const CLOUD_DB_KEY = 'reel_reason_global_cloud_db';
@@ -36,6 +36,29 @@ export const cloudServerMock = {
   handleRequest: async (method: string, url: string, data?: any) => {
     await new Promise(r => setTimeout(r, 60)); 
     const db = getDb();
+
+    // DELETE HANDLING
+    if (method === 'DELETE') {
+        if (url.includes('/challenges')) {
+            const params = new URLSearchParams(url.split('?')[1]);
+            const id = params.get('id');
+            const exists = db.challenges.find(c => c.id === id);
+            if (exists) {
+                db.challenges = db.challenges.filter(c => c.id !== id);
+                saveDb(db);
+                logToSystem('GAME', `Challenge ${id} terminated.`);
+                return { success: true };
+            }
+        }
+        if (url.includes('/entries')) {
+            const params = new URLSearchParams(url.split('?')[1]);
+            const userId = params.get('userId');
+            const movieId = params.get('movieId');
+            db.entries = db.entries.filter(e => !(e.userId === userId && e.movieId === movieId));
+            saveDb(db);
+            return { success: true };
+        }
+    }
 
     // AUTH ROUTES
     if (url === '/auth/otp' && method === 'POST') {
@@ -94,7 +117,6 @@ export const cloudServerMock = {
 
     // MOVIE ENTRY ROUTES
     if (url === '/entries' && method === 'POST') {
-      // Data Integrity Fix: Ensure strict lookup of existing (userId, movieId) pair
       const idx = db.entries.findIndex(e => e.userId === data.userId && e.movieId === data.movieId);
       if (idx > -1) {
         db.entries[idx] = { ...data, timestamp: data.timestamp || Date.now() };
@@ -154,8 +176,6 @@ export const cloudServerMock = {
                 timestamp: Date.now()
             });
             logToSystem('GAME', `Challenge ${id} finalized!`);
-          } else {
-            logToSystem('GAME', `Turn complete for ${id}. New turn: ${db.challenges[idx].turnUserId}`);
           }
           
           saveDb(db);

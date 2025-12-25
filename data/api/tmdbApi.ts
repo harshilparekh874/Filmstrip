@@ -118,36 +118,41 @@ export const tmdbApi = {
         })
         .map(m => mapToMovie({ ...m, media_type: type }));
 
-    // 3. Weighted Ranking Algorithm
-    // This prevents "Zootopia" (Animation/Family 2016) matching with "Slapstick" (Comedy 1920)
+    // 3. Robust Weighted Ranking Algorithm
     return moviePool
       .map(target => {
         let score = 0;
         
-        // A. Genre Match (High Weight)
+        // A. Genre Match (Extreme High Weight for Animation/Family)
         const commonGenres = target.genres.filter(g => source.genres.includes(g));
-        score += commonGenres.length * 10;
+        score += commonGenres.length * 15;
         
-        // Animation Lock: If source is Animation, target MUST be Animation to stay high rank
         const isAnimationSource = source.genres.includes('Animation');
         const isAnimationTarget = target.genres.includes('Animation');
-        if (isAnimationSource && isAnimationTarget) score += 50;
-        if (isAnimationSource && !isAnimationTarget) score -= 30;
+        const isFamilySource = source.genres.includes('Family');
+        const isFamilyTarget = target.genres.includes('Family');
 
-        // B. Era/Temporal Proximity (Medium Weight)
-        // Movies within 10 years are highly relevant, 50 years+ are penalized
+        if (isAnimationSource) {
+           if (isAnimationTarget) score += 100; // Animation MUST stay with Animation
+           else score -= 80; // Heavy penalty for matching Zootopia with live-action 1900s
+        }
+
+        if (isFamilySource && !isFamilyTarget) score -= 40;
+
+        // B. Era/Temporal Proximity (Aggressive Filter)
         const yearDiff = Math.abs(source.year - target.year);
-        if (yearDiff <= 5) score += 20;
-        else if (yearDiff <= 15) score += 10;
-        else if (yearDiff >= 40) score -= 20;
+        if (yearDiff <= 3) score += 50;  // Same franchise / direct era
+        else if (yearDiff <= 10) score += 30;
+        else if (yearDiff >= 30) score -= 60; // Huge penalty for modern matching vintage
+        else if (yearDiff >= 50) score -= 150; // Practically disqualifies era mismatches
 
-        // C. Popularity Fallback
-        // (Just a tiny boost for newer, well-known titles)
-        if (target.year > 2010) score += 5;
+        // C. Modernity Bias (if source is modern)
+        if (source.year > 2000 && target.year < 1980) score -= 100;
 
         return { movie: target, score };
       })
       .sort((a, b) => b.score - a.score)
+      .filter(item => item.score > -50) // Prune absolute mismatches
       .map(item => item.movie);
   }
 };

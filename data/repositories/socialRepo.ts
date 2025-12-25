@@ -50,5 +50,9 @@ export const socialRepo = {
 
   updateChallenge: async (id: string, updates: Partial<SocialChallenge>): Promise<SocialChallenge> => {
     return await cloudClient.put(`/challenges/${id}`, updates) as SocialChallenge;
+  },
+
+  deleteChallenge: async (id: string): Promise<void> => {
+    await cloudClient.delete(`/challenges?id=${id}`);
   }
 };

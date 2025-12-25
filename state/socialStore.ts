@@ -23,6 +23,7 @@ interface SocialState {
   // Challenges
   createChallenge: (challenge: Partial<SocialChallenge>) => Promise<SocialChallenge>;
   updateChallenge: (id: string, updates: Partial<SocialChallenge>) => Promise<void>;
+  cancelChallenge: (id: string) => Promise<void>;
 }
 
 export const useSocialStore = create<SocialState>((set, get) => ({
@@ -139,6 +140,13 @@ export const useSocialStore = create<SocialState>((set, get) => ({
     const res = await socialRepo.updateChallenge(id, updates);
     set(state => ({
       challenges: state.challenges.map(c => c.id === id ? res : c)
+    }));
+  },
+
+  cancelChallenge: async (id: string) => {
+    await socialRepo.deleteChallenge(id);
+    set(state => ({
+      challenges: state.challenges.filter(c => c.id !== id)
     }));
   }
 }));
