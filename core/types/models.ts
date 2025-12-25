@@ -53,7 +53,7 @@ export interface Friendship {
   status: 'PENDING' | 'ACCEPTED';
 }
 
-export type ChallengeType = 'BRACKET' | 'TIERLIST';
+export type ChallengeType = 'BRACKET' | 'TIERLIST' | 'GUESS_THE_MOVIE';
 export type ChallengeStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED';
 
 export interface SocialChallenge {
@@ -62,10 +62,13 @@ export interface SocialChallenge {
   recipientId: string;
   turnUserId: string; 
   type: ChallengeType;
-  size: 10 | 16 | 20 | 32 | 50 | 64;
+  size: 5 | 10 | 16 | 20 | 32 | 50 | 64;
   status: ChallengeStatus;
   movieIds: string[];
   results?: any; 
+  config?: {
+    timeLimitMins?: number;
+  };
   timestamp: number;
 }
 
