@@ -21,7 +21,7 @@ export const ChallengeGame: React.FC = () => {
   
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
-  const storeHasPopulatedRef = useRef(false);
+  const storeHasLoadedOnce = useRef(false);
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
@@ -31,7 +31,8 @@ export const ChallengeGame: React.FC = () => {
 
   // 1. DATA SYNC & DELETION POLLING
   useEffect(() => {
-    // Only process deletion logic if we are NOT currently fetching data
+    // Only process deletion detection if we've successfully loaded the store at least once
+    // and we are NOT currently in the middle of a background fetch.
     if (socialLoading) return;
 
     const found = challenges.find(c => c.id === id);
@@ -39,9 +40,10 @@ export const ChallengeGame: React.FC = () => {
     if (found) {
       setLocalChallenge(found);
       isInitialLoadRef.current = false;
-      storeHasPopulatedRef.current = true;
-    } else if (storeHasPopulatedRef.current && !isEnding && !isInitialLoadRef.current) {
-      // If we once had data and now it's gone (and we aren't loading), the battle was ended
+      storeHasLoadedOnce.current = true;
+    } else if (storeHasLoadedOnce.current && !isEnding && !isInitialLoadRef.current) {
+      // THE FIX: Only alert and navigate if we were already "inside" the battle 
+      // and it suddenly vanished from the verified challenges list.
       alert("Battle terminated. Your opponent has ended this session.");
       navigate('/social');
     }
@@ -49,7 +51,7 @@ export const ChallengeGame: React.FC = () => {
 
   useEffect(() => {
     if (!user?.id || !id) return;
-    // Fast polling to detect turn changes and challenge deletion
+    // Fast polling (3s) to ensure turn-switching and game-end detection are snappy
     const interval = setInterval(() => {
       fetchSocial(user.id);
     }, 3000);
@@ -59,18 +61,18 @@ export const ChallengeGame: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       if (!user?.id || !id) return;
+      // If we don't have the challenge in store, fetch it immediately
       const found = challenges.find(c => c.id === id);
-      // Only force an initial fetch if the store is empty
       if (!found && isInitialLoadRef.current) {
         try { 
           await fetchSocial(user.id); 
         } catch (err) { 
-          setError("Failed to load battle data."); 
+          setError("Failed to sync battle data."); 
         }
       }
     };
     init();
-  }, [id, user?.id, fetchSocial]);
+  }, [id, user?.id, fetchSocial, challenges]);
 
   // 2. MOVIE METADATA RESOLUTION
   useEffect(() => {
@@ -89,7 +91,7 @@ export const ChallengeGame: React.FC = () => {
     resolveMovies();
   }, [localChallenge, movies, seedMovies]);
 
-  // 3. GUESS GAME LOGIC
+  // 3. GUESS GAME TIMER & SEARCH
   useEffect(() => {
     const timer = setTimeout(() => {
       if (guessQuery.length > 2) search(guessQuery);
@@ -267,7 +269,12 @@ export const ChallengeGame: React.FC = () => {
     }
   };
 
-  if (!localChallenge) return <div className="flex h-[70vh] items-center justify-center"><div className="animate-spin h-12 w-12 border-4 border-indigo-500 border-t-transparent rounded-full"></div></div>;
+  if (!localChallenge) return (
+    <div className="flex flex-col items-center justify-center h-[70vh] space-y-4">
+      <div className="animate-spin h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Locating Battleground...</p>
+    </div>
+  );
 
   if (localChallenge.status === 'COMPLETED') {
       const isQuiz = localChallenge.type === 'GUESS_THE_MOVIE';
@@ -371,7 +378,7 @@ export const ChallengeGame: React.FC = () => {
         )}
       </header>
 
-      {/* TIER LIST UI - Renders even if not my turn so user can see progress */}
+      {/* TIER LIST UI */}
       {localChallenge.type === 'TIERLIST' && tierState && (
         <div className={`space-y-12 transition-opacity duration-300 ${!isMyTurn ? 'opacity-80' : ''}`}>
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
@@ -438,7 +445,7 @@ export const ChallengeGame: React.FC = () => {
         </div>
       )}
 
-      {/* GUESS THE MOVIE UI - Renders even if not user's turn */}
+      {/* GUESS THE MOVIE UI */}
       {localChallenge.type === 'GUESS_THE_MOVIE' && currentQuizMovie && (
           <div className={`grid grid-cols-1 lg:grid-cols-12 gap-10 items-start transition-opacity duration-300 ${!isMyTurn ? 'opacity-80' : ''}`}>
               <div className="lg:col-span-4 space-y-6">
@@ -583,7 +590,7 @@ export const ChallengeGame: React.FC = () => {
                     );
                 })}
                 
-                {/* VS Badge positioned correctly: Relative to the poster midpoint (approx 180px from top) */}
+                {/* VS Badge positioned correctly: Relative to the poster midpoint */}
                 <div className="hidden md:flex absolute left-1/2 top-[180px] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-[0_0_20px_rgba(99,102,241,0.4)] border-4 border-white z-10 pointer-events-none animate-pulse">VS</div>
             </div>
           </div>
