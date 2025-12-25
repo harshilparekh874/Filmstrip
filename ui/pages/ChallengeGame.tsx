@@ -11,16 +11,17 @@ export const ChallengeGame: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { challenges, updateChallenge, cancelChallenge, allUsers, fetchSocial } = useSocialStore();
+  const { challenges, updateChallenge, cancelChallenge, allUsers, fetchSocial, isLoading: socialLoading } = useSocialStore();
   const { movies, seedMovies, search, searchResults, clearSearch } = useMovieStore();
 
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEnding, setIsEnding] = useState(false);
   const [showWrongShake, setShowWrongShake] = useState(false);
+  
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
-  const hasLoadedStoreOnce = useRef(false);
+  const storeHasPopulatedRef = useRef(false);
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
@@ -30,23 +31,25 @@ export const ChallengeGame: React.FC = () => {
 
   // 1. DATA SYNC & DELETION POLLING
   useEffect(() => {
-    if (challenges.length > 0) hasLoadedStoreOnce.current = true;
-    
+    // Only process deletion logic if we are NOT currently fetching data
+    if (socialLoading) return;
+
     const found = challenges.find(c => c.id === id);
+    
     if (found) {
       setLocalChallenge(found);
       isInitialLoadRef.current = false;
-    } else if (hasLoadedStoreOnce.current && !isEnding && !isInitialLoadRef.current) {
-      // If we previously had the challenge but it's now missing from the store,
-      // it means the opponent deleted it.
+      storeHasPopulatedRef.current = true;
+    } else if (storeHasPopulatedRef.current && !isEnding && !isInitialLoadRef.current) {
+      // If we once had data and now it's gone (and we aren't loading), the battle was ended
       alert("Battle terminated. Your opponent has ended this session.");
       navigate('/social');
     }
-  }, [challenges, id, navigate, isEnding]);
+  }, [challenges, id, navigate, isEnding, socialLoading]);
 
   useEffect(() => {
     if (!user?.id || !id) return;
-    // Fast polling to detect turn changes and challenge deletion by opponent
+    // Fast polling to detect turn changes and challenge deletion
     const interval = setInterval(() => {
       fetchSocial(user.id);
     }, 3000);
@@ -57,6 +60,7 @@ export const ChallengeGame: React.FC = () => {
     const init = async () => {
       if (!user?.id || !id) return;
       const found = challenges.find(c => c.id === id);
+      // Only force an initial fetch if the store is empty
       if (!found && isInitialLoadRef.current) {
         try { 
           await fetchSocial(user.id); 
@@ -92,7 +96,7 @@ export const ChallengeGame: React.FC = () => {
       else clearSearch();
     }, 400);
     return () => clearTimeout(timer);
-  }, [guessQuery, search, clearSearch]);
+  }, [guessQuery]);
 
   useEffect(() => {
     if (localChallenge?.type === 'GUESS_THE_MOVIE' && localChallenge.status === 'ACTIVE' && localChallenge.turnUserId === user?.id) {
@@ -162,7 +166,6 @@ export const ChallengeGame: React.FC = () => {
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
     if (!id || !user || !localChallenge) return;
     
-    // Explicit turn swapping to prevent "Waiting" deadlocks
     const nextTurnUserId = isFinal 
         ? localChallenge.creatorId 
         : (user.id === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId);
@@ -443,7 +446,7 @@ export const ChallengeGame: React.FC = () => {
                       <img 
                         src={currentQuizMovie.posterUrl} 
                         className="w-full h-full object-cover select-none pointer-events-none transition-all duration-700" 
-                        style={{ filter: `brightness(${hintLevel * 0.1}) contrast(${hintLevel > 0 ? 0.8 : 0})` }} 
+                        style={{ filter: `brightness(${0.1 + (hintLevel * 0.3)}) contrast(${hintLevel > 0 ? 0.8 : 0})` }} 
                         alt="Silhouette"
                       />
                       <div className="absolute inset-0 bg-indigo-600/5 mix-blend-multiply" />
@@ -580,8 +583,8 @@ export const ChallengeGame: React.FC = () => {
                     );
                 })}
                 
-                {/* VS Badge positioned correctly: Relative to the poster midpoint, fixed offset from top */}
-                <div className="hidden md:flex absolute left-1/2 top-[120px] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-[0_0_20px_rgba(99,102,241,0.4)] border-4 border-white z-10 pointer-events-none animate-pulse">VS</div>
+                {/* VS Badge positioned correctly: Relative to the poster midpoint (approx 180px from top) */}
+                <div className="hidden md:flex absolute left-1/2 top-[180px] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-[0_0_20px_rgba(99,102,241,0.4)] border-4 border-white z-10 pointer-events-none animate-pulse">VS</div>
             </div>
           </div>
       )}
