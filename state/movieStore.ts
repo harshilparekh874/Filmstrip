@@ -22,7 +22,7 @@ interface MovieState {
   isLoading: boolean;
   isSearching: boolean;
   
-  fetchData: (userId: string, force?: boolean) => Promise<void>;
+  fetchData: (userId: string, isSilent?: boolean) => Promise<void>;
   seedMovies: (newMovies: Movie[]) => void;
   search: (query: string) => Promise<void>;
   updateEntry: (entry: UserMovieEntry) => Promise<void>;
@@ -50,9 +50,10 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     });
   },
 
-  fetchData: async (userId: string, force: boolean = false) => {
-    if (get().isLoading && !force) return;
-    set({ isLoading: true });
+  fetchData: async (userId: string, isSilent: boolean = false) => {
+    const currentState = get();
+    // Only show global loader if we have no data at all
+    if (!isSilent && currentState.userEntries.length === 0) set({ isLoading: true });
     
     try {
       const [userEntries, popularMovies, friendEntries] = await Promise.all([
@@ -62,6 +63,16 @@ export const useMovieStore = create<MovieState>((set, get) => ({
       ]);
 
       const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      
+      // ATOMIC CHECK: If entry length and most recent timestamp are identical, skip re-render
+      const hasChanged = currentState.userEntries.length !== sortedUserEntries.length || 
+                        (sortedUserEntries.length > 0 && currentState.userEntries[0]?.timestamp !== sortedUserEntries[0]?.timestamp);
+
+      if (!hasChanged && isSilent) {
+        if (get().isLoading) set({ isLoading: false });
+        return;
+      }
+
       const historyIds = new Set([...sortedUserEntries.map(e => e.movieId), ...friendEntries.map(e => e.movieId)]);
       
       const missingMovies = await Promise.all(
@@ -75,10 +86,13 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, 3);
 
-      const similarBatches = await Promise.all(lastThree.map(e => tmdbApi.getSimilarMovies(e.movieId)));
-      similarBatches.flat().forEach(m => {
-        if (!pool.find(p => p.id === m.id)) pool.push(m);
-      });
+      // Optimization: Only fetch similar if entries changed
+      if (hasChanged || !isSilent) {
+        const similarBatches = await Promise.all(lastThree.map(e => tmdbApi.getSimilarMovies(e.movieId)));
+        similarBatches.flat().forEach(m => {
+          if (!pool.find(p => p.id === m.id)) pool.push(m);
+        });
+      }
 
       const grouped = lastThree.map(e => {
         const src = pool.find(m => m.id === e.movieId);
@@ -162,39 +176,21 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     set({ isLoading: true });
     let completed = 0;
     
-    await get().fetchData(userId, true);
+    await get().fetchData(userId, false);
     const existingMovieIds = new Set(get().userEntries.map(e => e.movieId));
     
     for (let i = 0; i < lbMovies.length; i++) {
       const lb = lbMovies[i];
       try {
-        /**
-         * ROBUST DISAMBIGUATION LOGIC
-         * 1. Search TMDB using the Movie Title from CSV as a clean string.
-         */
         const results = await tmdbApi.searchMovies(lb.name);
-        
-        /**
-         * 2. Verification Step:
-         * We look through the results to find a movie that matches the YEAR 
-         * defined in the CSV column. This prevents "Parasite" (1982) from 
-         * being selected if your CSV says "Parasite" (2019).
-         */
         let match = null;
         if (results.length > 0) {
           if (lb.year > 0) {
-            // Find EXACT year match
             match = results.find(m => m.year === lb.year);
-            
-            // If no exact match (sometimes release dates vary by 1 year in different countries),
-            // check within a 1-year window.
             if (!match) {
               match = results.find(m => Math.abs(m.year - lb.year) <= 1);
             }
           }
-          
-          // If we still have no year match, or the CSV lacked a year,
-          // we only pick the first result if the title is an exact case-insensitive match.
           if (!match && results[0].title.toLowerCase() === lb.name.toLowerCase()) {
             match = results[0];
           }
@@ -203,8 +199,6 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         if (match && !existingMovieIds.has(match.id)) {
           const parsedDate = new Date(lb.dateWatched);
           const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
-          
-          // Row offset ensures original CSV order is preserved even for same-day watches.
           const finalTimestamp = baseTime - (i * 1000);
 
           const entry: UserMovieEntry = {
@@ -217,9 +211,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
           await get().updateEntry(entry);
           existingMovieIds.add(match.id);
         }
-      } catch (err) {
-        console.warn(`Failed to sync: ${lb.name}`, err);
-      }
+      } catch (err) {}
       completed++;
       onProgress(Math.floor((completed / lbMovies.length) * 100));
     }

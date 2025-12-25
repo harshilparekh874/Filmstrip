@@ -2,6 +2,8 @@
 import React, { useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './state/authStore';
+import { useMovieStore } from './state/movieStore';
+import { useSocialStore } from './state/socialStore';
 import { Layout } from './ui/layout/Layout';
 import { Dashboard } from './ui/pages/Dashboard';
 import { Login } from './ui/pages/Login';
@@ -29,15 +31,35 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const App: React.FC = () => {
   const { initialize, user } = useAuthStore();
+  const { fetchData } = useMovieStore();
+  const { fetchSocial } = useSocialStore();
 
   useEffect(() => {
     initialize();
   }, [initialize]);
 
+  // Priority Sync on Visibility Change (Cross-device reliability)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user?.id) {
+        // Trigger immediate background sync when user returns to app
+        fetchData(user.id, true);
+        fetchSocial(user.id, true);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [user?.id, fetchData, fetchSocial]);
+
   return (
     <Router>
       <Routes>
-        {/* If user is already logged in, /login redirects to / */}
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
         
         <Route path="/" element={

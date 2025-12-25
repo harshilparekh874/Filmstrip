@@ -35,7 +35,6 @@ const RecommendationRow: React.FC<{ group: GroupedRecommendation }> = ({ group }
         <div className="h-px flex-1 bg-slate-100 dark:bg-slate-800" />
       </div>
       
-      {/* Container for scrolling if screen is too small, but shows 10 items grid-style */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6 gap-y-10">
         {group.movies.map(movie => {
           const matchCount = movie.genres.filter(g => group.sourceMovie.genres.includes(g)).length;
@@ -71,11 +70,21 @@ export const Dashboard: React.FC = () => {
   
   const [query, setQuery] = useState('');
 
+  // Initial Fetch
   useEffect(() => {
     if (user) {
       fetchData(user.id);
     }
   }, [user, fetchData]);
+
+  // Background Polling for Multi-device Sync
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => {
+      fetchData(user.id, true);
+    }, 10000); // Check every 10 seconds silently
+    return () => clearInterval(interval);
+  }, [user?.id, fetchData]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -91,8 +100,14 @@ export const Dashboard: React.FC = () => {
 
   const mainRecommendations = useMemo(() => recommendations.slice(0, 15), [recommendations]);
 
+  if (isLoading && userEntries.length === 0) return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+    </div>
+  );
+
   return (
-    <div className="space-y-12 pb-20">
+    <div className="space-y-12 pb-20 overflow-anchor-none">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Welcome back, {user?.firstName}!</h1>
@@ -147,12 +162,10 @@ export const Dashboard: React.FC = () => {
 
       {!query && (
         <div className="space-y-24">
-          {/* Historical correlation rows (Last 3 Watched) */}
           {groupedRecommendations.length > 0 && groupedRecommendations.map((group) => (
             <RecommendationRow key={`row-${group.sourceMovie.id}`} group={group} />
           ))}
 
-          {/* Fallback/General Discovery Feed */}
           <section className="space-y-6">
             <div className="flex items-center gap-4">
               <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 tracking-tight">Trending & Personal Hits</h2>
