@@ -1,38 +1,54 @@
 
 export interface LetterboxdMovie {
   name: string;
-  year: number;
   dateWatched: string;
 }
 
 export const parseLetterboxdCSV = (csvText: string): LetterboxdMovie[] => {
-  const lines = csvText.split(/\r?\n/);
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length < 2) return [];
 
-  // Find header indices (Letterboxd format: Date,Name,Year,Letterboxd URI)
-  const headers = lines[0].split(',');
-  const nameIdx = headers.indexOf('Name');
-  const yearIdx = headers.indexOf('Year');
-  const dateIdx = headers.indexOf('Date');
+  /**
+   * Manual state-machine CSV parser to handle fields with commas inside quotes.
+   */
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuote = !inQuote;
+      } else if (char === ',' && !inQuote) {
+        result.push(cur.trim());
+        cur = '';
+      } else {
+        cur += char;
+      }
+    }
+    result.push(cur.trim());
+    return result;
+  };
 
-  if (nameIdx === -1 || yearIdx === -1) return [];
+  const headers = parseLine(lines[0]);
+  const nameIdx = headers.findIndex(h => h.toLowerCase() === 'name');
+  const dateIdx = headers.findIndex(h => h.toLowerCase() === 'date');
+
+  // Strictly Name and Date
+  if (nameIdx === -1 || dateIdx === -1) return [];
 
   const results: LetterboxdMovie[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    const parts = parseLine(lines[i]);
+    if (parts.length <= Math.max(nameIdx, dateIdx)) continue;
 
-    // Handle potential commas inside quotes for movie titles
-    const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-    if (!parts || parts.length < Math.max(nameIdx, yearIdx)) continue;
+    const rawName = parts[nameIdx];
+    const name = rawName.replace(/^"|"$/g, '').trim();
+    const dateWatched = parts[dateIdx].trim();
 
-    const name = parts[nameIdx].replace(/^"|"$/g, '');
-    const year = parseInt(parts[yearIdx]);
-    const dateWatched = dateIdx !== -1 ? parts[dateIdx] : new Date().toISOString().split('T')[0];
-
-    if (name && !isNaN(year)) {
-      results.push({ name, year, dateWatched });
+    if (name && dateWatched) {
+      results.push({ name, dateWatched });
     }
   }
 

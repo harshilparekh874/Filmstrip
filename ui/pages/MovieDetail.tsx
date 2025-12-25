@@ -1,5 +1,6 @@
 
-import { useEffect, useState, useRef } from 'react';
+// Fix: Added React to the import to satisfy the React.FC namespace requirement
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/authStore';
 import { useMovieStore } from '../../state/movieStore';

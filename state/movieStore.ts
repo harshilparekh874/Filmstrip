@@ -184,28 +184,34 @@ export const useMovieStore = create<MovieState>((set, get) => ({
   batchImportWatched: async (userId: string, lbMovies: LetterboxdMovie[], onProgress: (p: number) => void) => {
     set({ isLoading: true });
     let completed = 0;
-    
     const existingMovieIds = new Set(get().userEntries.map(e => e.movieId));
     
-    // Process in small serial batches to avoid slamming TMDB
-    for (const lb of lbMovies) {
+    for (let i = 0; i < lbMovies.length; i++) {
+      const lb = lbMovies[i];
       try {
-        const searchResults = await tmdbApi.searchMovies(`${lb.name} ${lb.year}`);
-        // Find best match by year parity
-        const match = searchResults.find(m => Math.abs(m.year - lb.year) <= 1);
+        // Search by Name only as requested
+        const searchResults = await tmdbApi.searchMovies(lb.name);
+        const match = searchResults[0]; // Pick most popular match
         
         if (match && !existingMovieIds.has(match.id)) {
+          const parsedDate = new Date(lb.dateWatched);
+          const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
+          
+          // Row offset (minus i) ensures the first movie in the CSV stays at the top/left
+          const finalTimestamp = baseTime - i;
+
           const entry: UserMovieEntry = {
             userId,
             movieId: match.id,
             status: 'WATCHED',
-            timestamp: new Date(lb.dateWatched).getTime() || Date.now()
+            timestamp: finalTimestamp
           };
+          
           await get().updateEntry(entry);
           existingMovieIds.add(match.id);
         }
       } catch (err) {
-        console.warn(`Failed to resolve: ${lb.name}`, err);
+        console.warn(`Failed to sync: ${lb.name}`, err);
       }
       completed++;
       onProgress(Math.floor((completed / lbMovies.length) * 100));
