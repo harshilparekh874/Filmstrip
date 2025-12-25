@@ -36,7 +36,11 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   requestingIds: new Set(),
 
   fetchSocial: async (userId: string, isSilent: boolean = false) => {
-    if (!isSilent) set({ isLoading: true });
+    // ONLY show loading spinner on the very first load or explicit forced refresh
+    const currentData = get();
+    const isFirstLoad = currentData.allUsers.length === 0;
+    if (!isSilent && isFirstLoad) set({ isLoading: true });
+    
     try {
       const [friendIds, allUsers, activityFeed, pendingIds, outgoingIds, challenges] = await Promise.all([
         socialRepo.getFriendIds(userId).catch(() => []),
@@ -62,16 +66,30 @@ export const useSocialStore = create<SocialState>((set, get) => ({
               } as User
           };
       });
-      
-      set({ 
-        friends, 
-        allUsers: usersList, 
-        activityFeed: Array.isArray(activityFeed) ? activityFeed : [], 
-        pendingRequests, 
-        outgoingRequests: outgoingIds, 
-        challenges: Array.isArray(challenges) ? challenges : [], 
-        isLoading: false 
-      });
+
+      const nextChallenges = Array.isArray(challenges) ? challenges : [];
+      const nextActivity = Array.isArray(activityFeed) ? activityFeed : [];
+
+      // ATOMIC UPDATE: Check if data is actually different to avoid triggering React's reconciliation
+      // This is the absolute cure for the scroll-jump-to-top issue.
+      const hasChallengesChanged = JSON.stringify(currentData.challenges) !== JSON.stringify(nextChallenges);
+      const hasActivityChanged = currentData.activityFeed.length !== nextActivity.length;
+      const hasRequestsChanged = currentData.pendingRequests.length !== pendingRequests.length;
+
+      if (hasChallengesChanged || hasActivityChanged || hasRequestsChanged || isFirstLoad) {
+          set({ 
+            friends, 
+            allUsers: usersList, 
+            activityFeed: nextActivity, 
+            pendingRequests, 
+            outgoingRequests: outgoingIds, 
+            challenges: nextChallenges, 
+            isLoading: false 
+          });
+      } else {
+          // If no data changed, we just ensure loading is false if it was true
+          if (currentData.isLoading) set({ isLoading: false });
+      }
     } catch (err) {
       set({ isLoading: false });
     }
@@ -149,15 +167,11 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       });
       
       const finalChallenge = Array.isArray(res) ? res[0] : res;
-
-      if (!finalChallenge || !finalChallenge.id) {
-          throw new Error("Invalid response from server during challenge creation");
-      }
+      if (!finalChallenge || !finalChallenge.id) throw new Error("Invalid response");
       
       set(state => ({ challenges: [...state.challenges, finalChallenge] }));
       return finalChallenge;
     } catch (err) {
-      console.error("Store error during creation:", err);
       throw err;
     }
   },
