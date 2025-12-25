@@ -62,16 +62,10 @@ export const useMovieStore = create<MovieState>((set, get) => ({
       ]);
 
       const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-      const historyIds = new Set([
-        ...sortedUserEntries.map(e => e.movieId),
-        ...friendEntries.map(e => e.movieId)
-      ]);
+      const historyIds = new Set([...sortedUserEntries.map(e => e.movieId), ...friendEntries.map(e => e.movieId)]);
       
       const missingMovies = await Promise.all(
-        Array.from(historyIds)
-          .filter(id => !popularMovies.find(m => m.id === id))
-          .map(id => movieRepo.getMovieById(id))
+        Array.from(historyIds).filter(id => !popularMovies.find(m => m.id === id)).map(id => movieRepo.getMovieById(id))
       );
       
       let pool = [...popularMovies, ...(missingMovies.filter(Boolean) as Movie[])];
@@ -81,10 +75,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, 3);
 
-      const similarBatches = await Promise.all(
-        lastThree.map(e => tmdbApi.getSimilarMovies(e.movieId))
-      );
-
+      const similarBatches = await Promise.all(lastThree.map(e => tmdbApi.getSimilarMovies(e.movieId)));
       similarBatches.flat().forEach(m => {
         if (!pool.find(p => p.id === m.id)) pool.push(m);
       });
@@ -111,17 +102,12 @@ export const useMovieStore = create<MovieState>((set, get) => ({
   },
 
   search: async (query: string) => {
-    if (!query) {
-      set({ searchResults: [] });
-      return;
-    }
+    if (!query) { set({ searchResults: [] }); return; }
     set({ isSearching: true });
     try {
       const results = await movieRepo.searchMovies(query);
       set({ searchResults: results, isSearching: false });
-    } catch (err) {
-      set({ isSearching: false });
-    }
+    } catch (err) { set({ isSearching: false }); }
   },
 
   clearSearch: () => set({ searchResults: [] }),
@@ -138,9 +124,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     }
 
     const updatedPool = [...state.movies];
-    if (targetMovie && !updatedPool.find(m => m.id === targetMovie.id)) {
-        updatedPool.push(targetMovie);
-    }
+    if (targetMovie && !updatedPool.find(m => m.id === targetMovie.id)) updatedPool.push(targetMovie);
 
     if (updatedEntry.status === 'WATCHED' && targetMovie) {
         const related = await tmdbApi.getSimilarMovies(targetMovie.id);
@@ -151,25 +135,18 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
     const existingIndex = state.userEntries.findIndex(e => e.movieId === updatedEntry.movieId);
     let newEntries = [...state.userEntries];
-    if (existingIndex > -1) {
-        newEntries[existingIndex] = updatedEntry;
-    } else {
-        newEntries.unshift(updatedEntry);
-    }
+    if (existingIndex > -1) newEntries[existingIndex] = updatedEntry;
+    else newEntries.unshift(updatedEntry);
     
     newEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-    const lastThree = newEntries
-      .filter(e => e.status === 'WATCHED')
-      .slice(0, 3);
-
+    const lastThree = newEntries.filter(e => e.status === 'WATCHED').slice(0, 3);
     const newGrouped = lastThree.map(e => {
       const src = updatedPool.find(m => m.id === e.movieId);
       if (!src) return null;
       const matches = findSimilarByGenre(src, updatedPool, 10);
-      if (matches.length === 0) return null;
       return { sourceMovie: src, sourceEntry: e, movies: matches };
-    }).filter(Boolean) as GroupedRecommendation[];
+    }).filter(g => g && g.movies.length > 0) as GroupedRecommendation[];
 
     set({ 
       userEntries: newEntries, 
@@ -184,24 +161,51 @@ export const useMovieStore = create<MovieState>((set, get) => ({
   batchImportWatched: async (userId: string, lbMovies: LetterboxdMovie[], onProgress: (p: number) => void) => {
     set({ isLoading: true });
     let completed = 0;
+    
+    await get().fetchData(userId, true);
     const existingMovieIds = new Set(get().userEntries.map(e => e.movieId));
     
     for (let i = 0; i < lbMovies.length; i++) {
       const lb = lbMovies[i];
       try {
-        // DISAMBIGUATION: Search with BOTH Name and Year
-        const searchQuery = `${lb.name} ${lb.year}`.trim();
-        const searchResults = await tmdbApi.searchMovies(searchQuery);
+        /**
+         * ROBUST DISAMBIGUATION LOGIC
+         * 1. Search TMDB using the Movie Title from CSV as a clean string.
+         */
+        const results = await tmdbApi.searchMovies(lb.name);
         
-        // Pick the best match: exactly matches the year or is the top search result
-        const match = searchResults.find(m => m.year === lb.year) || searchResults[0];
+        /**
+         * 2. Verification Step:
+         * We look through the results to find a movie that matches the YEAR 
+         * defined in the CSV column. This prevents "Parasite" (1982) from 
+         * being selected if your CSV says "Parasite" (2019).
+         */
+        let match = null;
+        if (results.length > 0) {
+          if (lb.year > 0) {
+            // Find EXACT year match
+            match = results.find(m => m.year === lb.year);
+            
+            // If no exact match (sometimes release dates vary by 1 year in different countries),
+            // check within a 1-year window.
+            if (!match) {
+              match = results.find(m => Math.abs(m.year - lb.year) <= 1);
+            }
+          }
+          
+          // If we still have no year match, or the CSV lacked a year,
+          // we only pick the first result if the title is an exact case-insensitive match.
+          if (!match && results[0].title.toLowerCase() === lb.name.toLowerCase()) {
+            match = results[0];
+          }
+        }
         
         if (match && !existingMovieIds.has(match.id)) {
           const parsedDate = new Date(lb.dateWatched);
           const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
           
-          // Row offset (minus i) ensures the visual order is maintained
-          const finalTimestamp = baseTime - i;
+          // Row offset ensures original CSV order is preserved even for same-day watches.
+          const finalTimestamp = baseTime - (i * 1000);
 
           const entry: UserMovieEntry = {
             userId,
