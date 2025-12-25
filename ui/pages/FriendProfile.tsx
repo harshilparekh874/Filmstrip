@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { userRepo } from '../../data/repositories/userRepo';
 import { movieRepo } from '../../data/repositories/movieRepo';
@@ -41,17 +41,26 @@ export const FriendProfile: React.FC = () => {
         const safeEntries = Array.isArray(e) ? e : [];
         setEntries(safeEntries);
 
-        // Fetch missing movie metadata for the friend's entries
+        // Fetch missing movie metadata for the friend's entries - increased limit to 100 for better initial visibility
         const missingIds = safeEntries
           .map(entry => entry.movieId)
           .filter(mId => !storeMovies.find(sm => sm.id === mId));
 
         if (missingIds.length > 0) {
-          const fetched = await Promise.all(
-            missingIds.slice(0, 20).map(mId => movieRepo.getMovieById(mId).catch(() => null))
-          );
-          const validMovies = fetched.filter(Boolean) as Movie[];
-          if (validMovies.length > 0) seedMovies(validMovies);
+          // Fetch metadata in batches to avoid rate limiting
+          const batchSize = 40;
+          const batches = [];
+          for (let i = 0; i < Math.min(missingIds.length, 100); i += batchSize) {
+              batches.push(missingIds.slice(i, i + batchSize));
+          }
+
+          for (const batch of batches) {
+              const fetched = await Promise.all(
+                batch.map(mId => movieRepo.getMovieById(mId).catch(() => null))
+              );
+              const validMovies = fetched.filter(Boolean) as Movie[];
+              if (validMovies.length > 0) seedMovies(validMovies);
+          }
         }
 
       } catch (err) {
@@ -115,8 +124,6 @@ export const FriendProfile: React.FC = () => {
     }
   };
 
-  if (loading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div></div>;
-
   const renderSection = (title: string, status: WatchStatus, icon: string) => {
     const filteredEntries = entries
       .filter(e => e.status === status)
@@ -125,25 +132,28 @@ export const FriendProfile: React.FC = () => {
     if (filteredEntries.length === 0) return null;
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div className="flex items-center justify-between px-2">
-          <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-            <span>{icon}</span>
+          <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500 flex items-center gap-2">
+            <span className="text-lg">{icon}</span>
             {title}
           </h2>
-          <span className="text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-            {filteredEntries.length}
+          <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1 rounded-full border border-indigo-100 dark:border-indigo-800">
+            {filteredEntries.length} Items
           </span>
         </div>
-        <div className="flex gap-4 overflow-x-auto pb-6 custom-scrollbar px-2 -mx-2">
+        <div className="flex gap-6 overflow-x-auto pb-10 pt-2 custom-scrollbar px-2 -mx-2 snap-x snap-mandatory">
           {filteredEntries.map(entry => {
             const movie = storeMovies.find(m => m.id === entry.movieId);
             if (!movie) return (
-              <div key={entry.movieId} className="w-32 h-48 bg-slate-100 dark:bg-slate-800 rounded-2xl animate-pulse flex-shrink-0" />
+              <div key={entry.movieId} className="w-32 h-48 bg-slate-100 dark:bg-slate-800 rounded-3xl animate-pulse flex-shrink-0" />
             );
             return (
-              <div key={movie.id} className="w-32 flex-shrink-0">
-                <MovieCard movie={movie} badge={entry.rating ? `${entry.rating}/10` : undefined} />
+              <div key={movie.id} className="w-36 flex-shrink-0 snap-start">
+                <MovieCard 
+                  movie={movie} 
+                  badge={entry.rating ? `${entry.rating}/10` : undefined} 
+                />
               </div>
             );
           })}
@@ -152,30 +162,35 @@ export const FriendProfile: React.FC = () => {
     );
   };
 
+  if (loading) return <div className="flex h-64 items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div></div>;
+
   return (
-    <div className="space-y-12 pb-32">
-      <header className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden relative transition-colors">
-        <div className="absolute top-0 left-0 right-0 h-32 bg-indigo-600/5 dark:bg-indigo-400/5" />
+    <div className="space-y-16 pb-32 animate-in fade-in duration-500">
+      <header className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden relative transition-colors">
+        <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-indigo-600/10 to-transparent" />
         <div className="relative flex flex-col items-center text-center">
-          <img src={friend?.avatarUrl} className="w-32 h-32 rounded-full border-4 border-white dark:border-slate-800 shadow-xl bg-white dark:bg-slate-800 object-cover" alt={friend?.name} />
+          <div className="relative">
+            <img src={friend?.avatarUrl} className="w-32 h-32 rounded-full border-4 border-white dark:border-slate-800 shadow-2xl bg-white dark:bg-slate-800 object-cover" alt={friend?.name} />
+            <div className="absolute -bottom-1 -right-1 bg-green-500 w-6 h-6 rounded-full border-4 border-white dark:border-slate-800 shadow-lg" />
+          </div>
           <div className="mt-4">
             <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">{friend?.name}</h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium">@{friend?.username}</p>
+            <p className="text-slate-500 dark:text-slate-400 font-bold tracking-wide">@{friend?.username}</p>
           </div>
-          <div className="flex gap-4 mt-6">
-            <button onClick={() => setShowModal(true)} className="px-8 py-3 bg-indigo-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-indigo-700 transition shadow-lg">🎮 Send Challenge</button>
+          <div className="flex gap-4 mt-8">
+            <button onClick={() => setShowModal(true)} className="px-10 py-4 bg-indigo-600 text-white font-black uppercase text-xs tracking-[0.2em] rounded-2xl hover:bg-indigo-700 transition shadow-xl active:scale-95">🎮 Start Battle</button>
           </div>
         </div>
       </header>
 
-      <div className="space-y-12">
-        {renderSection('Watched Recently', 'WATCHED', '✅')}
-        {renderSection('Watchlist', 'WATCH_LATER', '🕒')}
-        {renderSection('Dropped', 'DROPPED', '✖️')}
+      <div className="space-y-20">
+        {renderSection('Watched Library', 'WATCHED', '🍿')}
+        {renderSection('The Watchlist', 'WATCH_LATER', '✨')}
+        {renderSection('Abandoned Files', 'DROPPED', '📁')}
         
         {entries.length === 0 && (
-          <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
-            <p className="text-slate-400 italic">This friend hasn't tracked any movies yet.</p>
+          <div className="text-center py-24 bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-800">
+            <p className="text-slate-400 font-bold italic opacity-60">This friend hasn't tracked any movies yet.</p>
           </div>
         )}
       </div>
@@ -215,23 +230,19 @@ export const FriendProfile: React.FC = () => {
             <div className="space-y-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pool Size</label>
               <div className="grid grid-cols-3 gap-2">
-                {[16, 32, 64].map(s => {
-                    const sizes = gameType === 'BRACKET' ? [16, 32, 64] : (gameType === 'TIERLIST' ? [10, 20, 50] : [5, 10, 20]);
-                    if (!sizes.includes(s) && gameType !== 'BRACKET') return null;
-                    return (
-                        <button
-                          key={s}
-                          onClick={() => setGameSize(s)}
-                          className={`py-3 rounded-xl font-black text-sm transition ${
-                            gameSize === s 
-                            ? 'bg-indigo-600 text-white' 
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                          }`}
-                        >
-                          {s} Items
-                        </button>
-                    );
-                })}
+                {(gameType === 'BRACKET' ? [16, 32, 64] : (gameType === 'TIERLIST' ? [10, 20, 50] : [5, 10, 20])).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setGameSize(s)}
+                    className={`py-3 rounded-xl font-black text-sm transition ${
+                      gameSize === s 
+                      ? 'bg-indigo-600 text-white' 
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {s} Items
+                  </button>
+                ))}
               </div>
             </div>
 

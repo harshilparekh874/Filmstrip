@@ -89,16 +89,20 @@ export const tmdbApi = {
     const parts = tmdbId.split('-');
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
-    // Append credits to get the cast in one go
     const m = await fetchTmdb(`/${type}/${numericId}?language=en-US&append_to_response=credits`);
     return mapToMovie({ ...m, media_type: type });
   },
 
+  /**
+   * getSimilarMovies
+   * Switched to the /similar endpoint which uses thematic metadata (keywords/genres)
+   * rather than /recommendations which is user-behavior based.
+   */
   getSimilarMovies: async (tmdbId: string): Promise<Movie[]> => {
     const parts = tmdbId.split('-');
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
-    const data = await fetchTmdb(`/${type}/${numericId}/recommendations?language=en-US&page=1`);
+    const data = await fetchTmdb(`/${type}/${numericId}/similar?language=en-US&page=1`);
     return (data.results || []).slice(0, 15).map(m => mapToMovie({ ...m, media_type: type }));
   }
 };
