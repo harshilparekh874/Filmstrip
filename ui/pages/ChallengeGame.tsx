@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/authStore';
@@ -15,14 +16,13 @@ export const ChallengeGame: React.FC = () => {
 
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
-  const [hintLevel, setHintLevel] = useState(0); // 0: Cast, 1: Genres, 2: Overview
+  const [hintLevel, setHintLevel] = useState(0); 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const timerRef = useRef<any>(null);
 
@@ -43,7 +43,7 @@ export const ChallengeGame: React.FC = () => {
     init();
   }, [id, user?.id, fetchSocial]);
 
-  // Resolve Movie Metadata in background
+  // Deep Resolve Movie Metadata in background
   useEffect(() => {
     const resolveMovies = async () => {
       if (!localChallenge || hasAttemptedResolution.current) return;
@@ -104,15 +104,14 @@ export const ChallengeGame: React.FC = () => {
 
   const quizState = useMemo(() => {
       if (localChallenge?.type !== 'GUESS_THE_MOVIE') return null;
-      return localChallenge.results || {
-          index: 0,
-          correct: [],
-          skipped: [],
-          startTime: Date.now()
-      };
+      return localChallenge.results || null;
   }, [localChallenge]);
 
-  // Added currentQuizMovie memo to resolve 'Cannot find name' errors in JSX
+  const bracketState = useMemo(() => {
+      if (localChallenge?.type !== 'BRACKET') return null;
+      return localChallenge.results?.bracketState || null;
+  }, [localChallenge]);
+
   const currentQuizMovie = useMemo(() => {
     if (!quizState) return null;
     return gameMovies[quizState.index] || null;
@@ -120,7 +119,7 @@ export const ChallengeGame: React.FC = () => {
 
   const handleEndBattle = async () => {
     if (!id || !user) return;
-    if (window.confirm("End this battle? No one will win and it will be removed for both players.")) {
+    if (window.confirm("End this battle? It will be removed for both players.")) {
         setIsEnding(true);
         try {
             await cancelChallenge(id);
@@ -138,21 +137,23 @@ export const ChallengeGame: React.FC = () => {
     await updateChallenge(id, {
       status: isFinal ? 'COMPLETED' : 'ACTIVE',
       results: newResults,
-      turnUserId: isFinal ? localChallenge.creatorId : localChallenge.turnUserId
+      turnUserId: isFinal ? localChallenge.creatorId : (localChallenge.turnUserId === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId)
     });
   };
 
   const handleGameOver = () => {
       if (!localChallenge) return;
-      handleNextTurn(quizState, true);
+      handleNextTurn(localChallenge.results, true);
   };
 
   const handleGuess = (guessMovieId: string) => {
       if (!isMyTurn || !quizState) return;
-      const currentMovie = gameMovies[quizState.index];
+      const currentMovie = currentQuizMovie;
+      if (!currentMovie) return;
+      
       const isCorrect = guessMovieId === currentMovie.id;
-
       const nextResults = { ...quizState };
+      
       if (isCorrect) nextResults.correct = [...nextResults.correct, currentMovie.id];
       else return; 
 
@@ -169,7 +170,9 @@ export const ChallengeGame: React.FC = () => {
 
   const handleSkip = () => {
     if (!isMyTurn || !quizState) return;
-    const currentMovie = gameMovies[quizState.index];
+    const currentMovie = currentQuizMovie;
+    if (!currentMovie) return;
+
     const nextResults = {
         ...quizState,
         skipped: [...quizState.skipped, currentMovie.id],
@@ -188,8 +191,8 @@ export const ChallengeGame: React.FC = () => {
   };
 
   const handleBracketChoice = (winnerId: string) => {
-    if (!isMyTurn || !localChallenge?.results?.bracketState) return;
-    const { items, winners, index, round } = localChallenge.results.bracketState;
+    if (!isMyTurn || !bracketState) return;
+    const { items, winners, index, round } = bracketState;
     const nextWinners = [...winners, winnerId];
     let nextState = { items, winners: nextWinners, index: index + 2, round };
 
@@ -231,13 +234,13 @@ export const ChallengeGame: React.FC = () => {
                 <div className="max-w-md mx-auto bg-white dark:bg-slate-900 p-10 rounded-[3.5rem] shadow-2xl border border-indigo-100 dark:border-indigo-900/30">
                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600 dark:text-indigo-400 mb-6">The Champion</p>
                     {(() => {
-                        const winner = movies.find(m => m.id === localChallenge.results.finalWinner);
+                        const winner = movies.find(m => m.id === localChallenge.results?.finalWinner);
                         return winner ? (
                             <div className="space-y-6">
                                 <img src={winner.posterUrl} className="w-48 mx-auto rounded-3xl shadow-xl border-4 border-indigo-600" />
                                 <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">{winner.title}</h2>
                             </div>
-                        ) : null;
+                        ) : <div className="p-10 italic text-slate-400">Winner data loading...</div>;
                     })()}
                 </div>
               )}
@@ -270,7 +273,7 @@ export const ChallengeGame: React.FC = () => {
           <div className="flex items-center gap-3 mt-2">
               <p className="text-slate-500 dark:text-slate-400">
                 Playing with <strong>{opponent?.firstName || 'Friend'}</strong> • 
-                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn</span> : <span className="text-slate-400 ml-2">Waiting...</span>}
+                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn!</span> : <span className="text-slate-400 ml-2">Waiting for {opponent?.firstName || 'friend'}...</span>}
               </p>
           </div>
         </div>
@@ -287,6 +290,15 @@ export const ChallengeGame: React.FC = () => {
             </div>
         )}
       </header>
+
+      {/* GAME CONTENT FALLBACK */}
+      {((localChallenge.type === 'GUESS_THE_MOVIE' && !quizState) || (localChallenge.type === 'BRACKET' && !bracketState)) && (
+          <div className="p-20 text-center bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-dashed border-indigo-100 dark:border-indigo-900/30">
+              <div className="animate-bounce text-4xl mb-4">🍿</div>
+              <h2 className="text-xl font-bold dark:text-white">Preparing Battle...</h2>
+              <p className="text-slate-400 text-sm mt-2">Syncing game data with the server.</p>
+          </div>
+      )}
 
       {localChallenge.type === 'GUESS_THE_MOVIE' && currentQuizMovie && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
@@ -395,17 +407,43 @@ export const ChallengeGame: React.FC = () => {
           </div>
       )}
 
-      {localChallenge.type === 'BRACKET' && localChallenge.results?.bracketState && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              {[localChallenge.results.bracketState.items[localChallenge.results.bracketState.index], localChallenge.results.bracketState.items[localChallenge.results.bracketState.index + 1]].map((mId, idx) => {
-                  const movie = movies.find(m => m.id === mId);
-                  return movie ? (
-                      <button key={movie.id} disabled={!isMyTurn} onClick={() => handleBracketChoice(movie.id)} className="group mx-auto">
-                          <img src={movie.posterUrl} className="w-64 aspect-[2/3] rounded-[2.5rem] border-4 border-transparent group-hover:border-indigo-500 transition shadow-2xl" />
-                          <h3 className="mt-4 text-xl font-black dark:text-white line-clamp-1">{movie.title}</h3>
-                      </button>
-                  ) : <div key={`empty-${idx}`} className="w-64 h-96 bg-slate-200 animate-pulse rounded-[2.5rem]" />;
-              })}
+      {localChallenge.type === 'BRACKET' && bracketState && (
+          <div className="space-y-12">
+            <div className="text-center">
+                <span className="px-6 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-black uppercase tracking-widest border border-indigo-100 dark:border-indigo-900/20">
+                    Round {bracketState.round} • Match {Math.floor(bracketState.index / 2) + 1} of {Math.floor(bracketState.items.length / 2)}
+                </span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+                {[bracketState.items[bracketState.index], bracketState.items[bracketState.index + 1]].map((mId, idx) => {
+                    const movie = movies.find(m => m.id === mId);
+                    return movie ? (
+                        <div key={movie.id} className="group flex flex-col items-center">
+                            <button 
+                                disabled={!isMyTurn} 
+                                onClick={() => handleBracketChoice(movie.id)} 
+                                className={`relative aspect-[2/3] w-64 rounded-[2.5rem] overflow-hidden border-4 transition-all duration-300 shadow-2xl ${
+                                    isMyTurn 
+                                    ? 'border-transparent hover:border-indigo-500 hover:scale-105 cursor-pointer' 
+                                    : 'border-slate-100 dark:border-slate-800 opacity-80 cursor-default'
+                                }`}
+                            >
+                                <img src={movie.posterUrl} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </button>
+                            <h3 className="mt-6 text-xl font-black text-slate-900 dark:text-white line-clamp-1">{movie.title}</h3>
+                            <p className="text-xs text-slate-400 uppercase font-black tracking-widest mt-1">{movie.year}</p>
+                        </div>
+                    ) : (
+                        <div key={`loading-${idx}`} className="w-64 aspect-[2/3] bg-slate-100 dark:bg-slate-800 animate-pulse rounded-[2.5rem] flex items-center justify-center">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Loading Movie...</span>
+                        </div>
+                    );
+                })}
+                
+                <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-2xl border-4 border-white z-10">VS</div>
+            </div>
           </div>
       )}
     </div>

@@ -131,7 +131,34 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   createChallenge: async (challenge: Partial<SocialChallenge>) => {
-    const res = await socialRepo.createChallenge(challenge);
+    // INITIALIZE RESULTS BEFORE CREATION
+    // This solves the "empty game" bug where recipient joins but has no starting state
+    const movieIds = challenge.movieIds || [];
+    let initialResults: any = {};
+
+    if (challenge.type === 'BRACKET') {
+      initialResults = {
+        bracketState: {
+          items: movieIds,
+          winners: [],
+          index: 0,
+          round: 1
+        }
+      };
+    } else if (challenge.type === 'GUESS_THE_MOVIE') {
+      initialResults = {
+        index: 0,
+        correct: [],
+        skipped: [],
+        startTime: Date.now()
+      };
+    }
+
+    const res = await socialRepo.createChallenge({
+      ...challenge,
+      results: initialResults
+    });
+    
     set(state => ({ challenges: [...state.challenges, res] }));
     return res;
   },
