@@ -52,7 +52,7 @@ export const ChallengeGame: React.FC = () => {
   useEffect(() => {
     if (!user?.id || !id) return;
     const interval = setInterval(() => {
-      fetchSocial(user.id);
+      fetchSocial(user.id, true);
     }, 4000);
     return () => clearInterval(interval);
   }, [id, user?.id, fetchSocial]);
@@ -74,42 +74,49 @@ export const ChallengeGame: React.FC = () => {
       return localChallenge.results || { index: 0, correct: [], skipped: [], startTime: Date.now() };
   }, [localChallenge]);
 
-  // 2. ULTRA-FAST DATA RESOLUTION
-  // We prioritize the CURRENT movie so you can play immediately, then fetch others in background.
+  // 2. ULTRA-FAST DATA RESOLUTION (CAST & DETAILS)
+  // Logic: Fetch the current movie + next 2 movies with HIGH PRIORITY (Parallel)
   useEffect(() => {
     const resolveActiveData = async () => {
       if (!localChallenge || !quizState) return;
       
       const currentIndex = quizState.index;
-      const currentMovieId = localChallenge.movieIds[currentIndex];
       
-      if (!currentMovieId) return;
+      // Select the "active" batch (current + next 2) to ensure no waiting
+      const activeMovieIds = localChallenge.movieIds.slice(currentIndex, currentIndex + 3);
+      
+      if (activeMovieIds.length === 0) return;
 
-      // Ensure we have current movie data with cast
-      const currentInStore = movies.find(m => m.id === currentMovieId);
-      const castMissing = !currentInStore || !currentInStore.cast || currentInStore.cast.length === 0;
-
-      if (castMissing && !fetchedIdsRef.current.has(currentMovieId)) {
-          fetchedIdsRef.current.add(currentMovieId);
-          // IMMEDIATE FETCH: Same as search-to-detail flow
-          const freshData = await movieRepo.getMovieById(currentMovieId).catch(() => null);
-          if (freshData) seedMovies([freshData]);
-      }
-
-      // Background sync remaining movies
-      const remainingIds = localChallenge.movieIds.slice(currentIndex + 1);
-      const missingIds = remainingIds.filter(mid => {
-        const inStore = movies.find(m => m.id === mid);
-        return (!inStore || !inStore.cast || inStore.cast.length === 0) && !fetchedIdsRef.current.has(mid);
+      const moviesToFetch = activeMovieIds.filter(mId => {
+          const inStore = movies.find(m => m.id === mId);
+          const isMissingCast = !inStore || !inStore.cast || inStore.cast.length === 0;
+          return isMissingCast && !fetchedIdsRef.current.has(mId);
       });
 
-      if (missingIds.length > 0) {
-        missingIds.forEach(mid => fetchedIdsRef.current.add(mid));
-        Promise.all(missingIds.map(mid => movieRepo.getMovieById(mid).catch(() => null)))
-          .then(results => {
-            const valid = results.filter(Boolean) as Movie[];
-            if (valid.length > 0) seedMovies(valid);
-          });
+      if (moviesToFetch.length > 0) {
+          moviesToFetch.forEach(mId => fetchedIdsRef.current.add(mId));
+          
+          // Use same mechanism as search results: Fetch full details including credits
+          Promise.all(moviesToFetch.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
+            .then(results => {
+              const valid = results.filter(Boolean) as Movie[];
+              if (valid.length > 0) seedMovies(valid);
+            });
+      }
+
+      // 3. BACKGROUND RESOLUTION: Fetch all remaining movie IDs later
+      const remainingIds = localChallenge.movieIds.slice(currentIndex + 3).filter(mId => {
+          const inStore = movies.find(m => m.id === mId);
+          return (!inStore || !inStore.cast || inStore.cast.length === 0) && !fetchedIdsRef.current.has(mId);
+      });
+
+      if (remainingIds.length > 0) {
+          remainingIds.forEach(mId => fetchedIdsRef.current.add(mId));
+          Promise.all(remainingIds.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
+            .then(results => {
+              const valid = results.filter(Boolean) as Movie[];
+              if (valid.length > 0) seedMovies(valid);
+            });
       }
     };
 

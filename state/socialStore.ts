@@ -15,12 +15,11 @@ interface SocialState {
   isLoading: boolean;
   requestingIds: Set<string>; 
 
-  fetchSocial: (userId: string) => Promise<void>;
+  fetchSocial: (userId: string, isSilent?: boolean) => Promise<void>;
   sendRequest: (userId: string, friendId: string) => Promise<void>;
   acceptRequest: (userId: string, senderId: string) => Promise<void>;
   rejectRequest: (userId: string, senderId: string) => Promise<void>;
   
-  // Challenges
   createChallenge: (challenge: Partial<SocialChallenge>) => Promise<SocialChallenge>;
   updateChallenge: (id: string, updates: Partial<SocialChallenge>) => Promise<void>;
   cancelChallenge: (id: string) => Promise<void>;
@@ -36,8 +35,8 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   isLoading: false,
   requestingIds: new Set(),
 
-  fetchSocial: async (userId: string) => {
-    set({ isLoading: true });
+  fetchSocial: async (userId: string, isSilent: boolean = false) => {
+    if (!isSilent) set({ isLoading: true });
     try {
       const [friendIds, allUsers, activityFeed, pendingIds, outgoingIds, challenges] = await Promise.all([
         socialRepo.getFriendIds(userId).catch(() => []),
@@ -86,7 +85,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
     }));
     try {
         await socialRepo.addFriendRequest(userId, friendId);
-        await get().fetchSocial(userId);
+        await get().fetchSocial(userId, true);
     } catch (err) {
         set(state => ({ outgoingRequests: state.outgoingRequests.filter(id => id !== friendId) }));
     } finally {
@@ -101,14 +100,14 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   acceptRequest: async (userId: string, senderId: string) => {
     try {
         await socialRepo.acceptFriendRequest(userId, senderId);
-        await get().fetchSocial(userId);
+        await get().fetchSocial(userId, true);
     } catch (err) {}
   },
 
   rejectRequest: async (userId: string, senderId: string) => {
     try {
         await socialRepo.rejectFriendRequest(userId, senderId);
-        await get().fetchSocial(userId);
+        await get().fetchSocial(userId, true);
     } catch (err) {}
   },
 
@@ -149,7 +148,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         results: initialResults
       });
       
-      // Supabase sometimes returns an array even for single inserts
       const finalChallenge = Array.isArray(res) ? res[0] : res;
 
       if (!finalChallenge || !finalChallenge.id) {
