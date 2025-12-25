@@ -148,6 +148,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       results: initialResults
     });
     
+    // Explicitly add to local state immediately to avoid race conditions during navigation
     set(state => ({ challenges: [...state.challenges, res] }));
     return res;
   },
