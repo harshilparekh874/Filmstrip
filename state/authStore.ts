@@ -31,10 +31,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     const storedUser = await storage.getItem<User>('auth_user_data');
     if (storedUser) {
-      set({ user: storedUser });
-      // Trigger side-effect fetches to ensure data is fresh and social is synced
-      useMovieStore.getState().fetchData(storedUser.id);
-      useSocialStore.getState().fetchSocial(storedUser.id);
+      // PROACTIVE SYNC: Verify user still exists in DB (for multi-device sync)
+      try {
+        const users = await cloudClient.get(`/users`, { userId: storedUser.id }) as User[];
+        const user = users && users.length > 0 ? users[0] : null;
+        if (user) {
+          set({ user });
+          useMovieStore.getState().fetchData(user.id);
+          useSocialStore.getState().fetchSocial(user.id);
+        } else {
+          // If profile vanished, logout
+          await storage.removeItem('auth_user_data');
+          set({ user: null });
+        }
+      } catch (err) {
+        // If offline or error, stick with cached user for now
+        set({ user: storedUser });
+        useMovieStore.getState().fetchData(storedUser.id);
+        useSocialStore.getState().fetchSocial(storedUser.id);
+      }
     }
     set({ isLoading: false });
   },
@@ -82,6 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         id: userId,
         email: email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
+        createdAt: Date.now()
     };
 
     delete (finalData as any).movieSearch;

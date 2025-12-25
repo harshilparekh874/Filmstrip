@@ -12,7 +12,7 @@ export const ChallengeGame: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { challenges, updateChallenge, cancelChallenge, allUsers, fetchSocial } = useSocialStore();
-  const { movies, seedMovies, search, searchResults, clearSearch, isSearching } = useMovieStore();
+  const { movies, seedMovies, search, searchResults, clearSearch } = useMovieStore();
 
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export const ChallengeGame: React.FC = () => {
     init();
   }, [id, user?.id, fetchSocial]);
 
-  // Deep Resolve Movie Metadata in background
+  // Deep Resolve Movie Metadata for player who didn't create the challenge
   useEffect(() => {
     const resolveMovies = async () => {
       if (!localChallenge || hasAttemptedResolution.current) return;
@@ -89,7 +89,7 @@ export const ChallengeGame: React.FC = () => {
         }, 1000);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [localChallenge, user?.id]);
+  }, [localChallenge, user?.id, timeLeft]);
 
   const isMyTurn = localChallenge?.turnUserId === user?.id;
   const opponentId = localChallenge?.creatorId === user?.id ? localChallenge?.recipientId : localChallenge?.creatorId;
@@ -125,8 +125,6 @@ export const ChallengeGame: React.FC = () => {
             await cancelChallenge(id);
             navigate('/social');
         } catch (err) {
-            console.error("Failed to end battle", err);
-        } finally {
             setIsEnding(false);
         }
     }
@@ -134,10 +132,16 @@ export const ChallengeGame: React.FC = () => {
 
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
     if (!id || !user || !localChallenge) return;
+    
+    // Switch turn logic: if it was my turn, it's now the opponent's turn.
+    const nextTurnUserId = isFinal 
+        ? localChallenge.creatorId 
+        : (user.id === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId);
+
     await updateChallenge(id, {
       status: isFinal ? 'COMPLETED' : 'ACTIVE',
       results: newResults,
-      turnUserId: isFinal ? localChallenge.creatorId : (localChallenge.turnUserId === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId)
+      turnUserId: nextTurnUserId
     });
   };
 
@@ -147,35 +151,34 @@ export const ChallengeGame: React.FC = () => {
   };
 
   const handleGuess = (guessMovieId: string) => {
-      if (!isMyTurn || !quizState) return;
-      const currentMovie = currentQuizMovie;
-      if (!currentMovie) return;
+      if (!isMyTurn || !quizState || !currentQuizMovie) return;
       
-      const isCorrect = guessMovieId === currentMovie.id;
-      const nextResults = { ...quizState };
-      
-      if (isCorrect) nextResults.correct = [...nextResults.correct, currentMovie.id];
-      else return; 
+      const isCorrect = guessMovieId === currentQuizMovie.id;
+      if (!isCorrect) return;
+
+      const nextResults = { 
+          ...quizState, 
+          correct: [...quizState.correct, currentQuizMovie.id],
+          index: quizState.index + 1
+      };
 
       setGuessQuery('');
       setHintLevel(0);
       clearSearch();
 
-      if (quizState.index + 1 >= gameMovies.length) {
+      if (nextResults.index >= gameMovies.length) {
           handleNextTurn(nextResults, true);
       } else {
-          handleNextTurn({ ...nextResults, index: quizState.index + 1 });
+          handleNextTurn(nextResults);
       }
   };
 
   const handleSkip = () => {
-    if (!isMyTurn || !quizState) return;
-    const currentMovie = currentQuizMovie;
-    if (!currentMovie) return;
+    if (!isMyTurn || !quizState || !currentQuizMovie) return;
 
     const nextResults = {
         ...quizState,
-        skipped: [...quizState.skipped, currentMovie.id],
+        skipped: [...quizState.skipped, currentQuizMovie.id],
         index: quizState.index + 1
     };
 
@@ -237,7 +240,7 @@ export const ChallengeGame: React.FC = () => {
                         const winner = movies.find(m => m.id === localChallenge.results?.finalWinner);
                         return winner ? (
                             <div className="space-y-6">
-                                <img src={winner.posterUrl} className="w-48 mx-auto rounded-3xl shadow-xl border-4 border-indigo-600" />
+                                <img src={winner.posterUrl} className="w-48 mx-auto rounded-3xl shadow-xl border-4 border-indigo-600" alt="winner" />
                                 <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100">{winner.title}</h2>
                             </div>
                         ) : <div className="p-10 italic text-slate-400">Winner data loading...</div>;
@@ -302,13 +305,13 @@ export const ChallengeGame: React.FC = () => {
 
       {localChallenge.type === 'GUESS_THE_MOVIE' && currentQuizMovie && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-              {/* Silhouette Poster Column */}
               <div className="lg:col-span-4 space-y-6">
                   <div className="relative aspect-[2/3] rounded-[2.5rem] overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-2xl border-4 border-white dark:border-slate-800">
                       <img 
                         src={currentQuizMovie.posterUrl} 
                         className="w-full h-full object-cover select-none pointer-events-none" 
                         style={{ filter: 'brightness(0) contrast(0)' }} 
+                        alt="Silhouette"
                       />
                       <div className="absolute inset-0 bg-indigo-600/5 mix-blend-multiply" />
                       <div className="absolute top-4 left-4 right-4 text-center">
@@ -326,7 +329,6 @@ export const ChallengeGame: React.FC = () => {
                   </button>
               </div>
 
-              {/* Hints & Input Column */}
               <div className="lg:col-span-8 space-y-8">
                   <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
                       <div className="space-y-3">
@@ -393,7 +395,7 @@ export const ChallengeGame: React.FC = () => {
                                     onClick={() => handleGuess(movie.id)}
                                     className="w-full p-5 text-left flex items-center gap-5 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border-b border-slate-50 dark:border-slate-700 last:border-0 transition-colors"
                                   >
-                                      <img src={movie.posterUrl} className="w-10 h-14 rounded shadow-sm object-cover" />
+                                      <img src={movie.posterUrl} className="w-10 h-14 rounded shadow-sm object-cover" alt="result" />
                                       <div>
                                           <p className="font-bold text-slate-900 dark:text-slate-100">{movie.title}</p>
                                           <p className="text-xs text-slate-500">{movie.year}</p>
@@ -429,7 +431,7 @@ export const ChallengeGame: React.FC = () => {
                                     : 'border-slate-100 dark:border-slate-800 opacity-80 cursor-default'
                                 }`}
                             >
-                                <img src={movie.posterUrl} className="w-full h-full object-cover" />
+                                <img src={movie.posterUrl} className="w-full h-full object-cover" alt="movie" />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                             </button>
                             <h3 className="mt-6 text-xl font-black text-slate-900 dark:text-white line-clamp-1">{movie.title}</h3>

@@ -16,14 +16,19 @@ import { SystemLogOverlay } from './ui/components/SystemLogOverlay';
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuthStore();
   
-  if (isLoading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
-  if (!user) return <Navigate to="/login" />;
+  if (isLoading) return (
+    <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-[#0f1115]">
+      <div className="animate-spin h-12 w-12 border-4 border-indigo-500 border-t-transparent rounded-full" />
+    </div>
+  );
+  
+  if (!user) return <Navigate to="/login" replace />;
   
   return <>{children}</>;
 };
 
 const App: React.FC = () => {
-  const { initialize } = useAuthStore();
+  const { initialize, user } = useAuthStore();
 
   useEffect(() => {
     initialize();
@@ -32,7 +37,8 @@ const App: React.FC = () => {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        {/* If user is already logged in, /login redirects to / */}
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
         
         <Route path="/" element={
           <ProtectedRoute>
