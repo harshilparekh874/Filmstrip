@@ -25,7 +25,6 @@ export const Social: React.FC = () => {
   
   const [userQuery, setUserQuery] = useState('');
 
-  // Initial Data Fetch
   useEffect(() => {
     if (currentUser?.id) {
       fetchSocial(currentUser.id);
@@ -33,13 +32,12 @@ export const Social: React.FC = () => {
     }
   }, [currentUser, fetchSocial, fetchMovies]);
 
-  // LIVE POLLING: Refresh social data every 5 seconds to catch new challenges instantly
+  // High-frequency polling to get new battles instantly
   useEffect(() => {
     if (!currentUser?.id) return;
     const interval = setInterval(() => {
-      // Background sync without triggering full page loading state
       fetchSocial(currentUser.id);
-    }, 5000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [currentUser?.id, fetchSocial]);
 
@@ -101,7 +99,6 @@ export const Social: React.FC = () => {
         </div>
       </header>
 
-      {/* Challenges Section */}
       {activeChallenges.length > 0 && (
           <section className="bg-indigo-600 p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl" />
@@ -150,7 +147,6 @@ export const Social: React.FC = () => {
           </section>
       )}
 
-      {/* Friend Requests Section */}
       {pendingRequests.length > 0 && (
         <section className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-3xl border border-amber-100 dark:border-amber-900/30 animate-in slide-in-from-top-4">
           <h2 className="text-xs font-black uppercase tracking-widest text-amber-900 dark:text-amber-400 mb-4 ml-1 flex items-center gap-2">
@@ -187,7 +183,6 @@ export const Social: React.FC = () => {
         </section>
       )}
 
-      {/* Discovery Section */}
       <section className="bg-slate-100 dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 transition-colors">
         <h2 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-6 ml-1">Community Discovery</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -225,7 +220,6 @@ export const Social: React.FC = () => {
         </div>
       </section>
 
-      {/* Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">Activity Feed</h2>
@@ -255,7 +249,6 @@ export const Social: React.FC = () => {
           </div>
         </div>
 
-        {/* Friends Sidebar */}
         <div className="space-y-6">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Friends</h2>
           {friends.length > 0 ? (

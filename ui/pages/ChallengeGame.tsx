@@ -85,32 +85,27 @@ export const ChallengeGame: React.FC = () => {
       
       if (!currentMovieId) return;
 
-      // 1. PRIORITIZED FETCH: Get the current movie details NOW (includes credits/cast)
-      const currentMovie = movies.find(m => m.id === currentMovieId);
-      // Ensure we have cast data specifically
-      const needsFullCast = !currentMovie || !currentMovie.cast || currentMovie.cast.length === 0;
-      
-      if (needsFullCast && !fetchedIdsRef.current.has(currentMovieId)) {
+      // Ensure we have current movie data with cast
+      const currentInStore = movies.find(m => m.id === currentMovieId);
+      const castMissing = !currentInStore || !currentInStore.cast || currentInStore.cast.length === 0;
+
+      if (castMissing && !fetchedIdsRef.current.has(currentMovieId)) {
           fetchedIdsRef.current.add(currentMovieId);
-          // Trigger immediate fetch
-          movieRepo.getMovieById(currentMovieId).then(movie => {
-            if (movie) seedMovies([movie]);
-          }).catch(() => null);
+          // IMMEDIATE FETCH: Same as search-to-detail flow
+          const freshData = await movieRepo.getMovieById(currentMovieId).catch(() => null);
+          if (freshData) seedMovies([freshData]);
       }
 
-      // 2. BACKGROUND FETCH: Fire off ALL remaining movies in the challenge in parallel
-      // This ensures that as you play, the NEXT movies already have their cast data ready.
-      const otherIds = localChallenge.movieIds.filter(mId => mId !== currentMovieId);
-      const missingOtherIds = otherIds.filter(mId => {
-        const m = movies.find(sm => sm.id === mId);
-        return (!m || !m.cast || m.cast.length === 0) && !fetchedIdsRef.current.has(mId);
+      // Background sync remaining movies
+      const remainingIds = localChallenge.movieIds.slice(currentIndex + 1);
+      const missingIds = remainingIds.filter(mid => {
+        const inStore = movies.find(m => m.id === mid);
+        return (!inStore || !inStore.cast || inStore.cast.length === 0) && !fetchedIdsRef.current.has(mid);
       });
 
-      if (missingOtherIds.length > 0) {
-        missingOtherIds.forEach(id => fetchedIdsRef.current.add(id));
-        
-        // Parallel burst
-        Promise.all(missingOtherIds.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
+      if (missingIds.length > 0) {
+        missingIds.forEach(mid => fetchedIdsRef.current.add(mid));
+        Promise.all(missingIds.map(mid => movieRepo.getMovieById(mid).catch(() => null)))
           .then(results => {
             const valid = results.filter(Boolean) as Movie[];
             if (valid.length > 0) seedMovies(valid);

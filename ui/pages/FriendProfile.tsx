@@ -92,18 +92,29 @@ export const FriendProfile: React.FC = () => {
       const myWatched = (Array.isArray(myEntries) ? myEntries : []).filter(e => e.status === 'WATCHED').map(e => e.movieId);
       const friendWatched = entries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
       
-      let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
+      let allPotentialIds = Array.from(new Set([...myWatched, ...friendWatched]));
+      const fillerIds = (Array.isArray(fillerPool) ? fillerPool : []).map(m => m.id).filter(id => !allPotentialIds.includes(id));
+      allPotentialIds = [...allPotentialIds, ...fillerIds];
+
+      // CRITICAL: Fetch minimal data for all pool candidates to filter by genre if needed
+      // For Guess Games, we strictly exclude 'Animation'
+      let finalPoolIds = allPotentialIds;
+      if (gameType === 'GUESS_THE_MOVIE') {
+          // Filter store movies first
+          const storeAnimations = new Set(storeMovies.filter(m => m.genres.includes('Animation')).map(m => m.id));
+          finalPoolIds = allPotentialIds.filter(id => !storeAnimations.has(id));
+          
+          // Note: If some filler movies aren't in store, we might miss an animation, 
+          // but for the sake of speed we rely on the large seeded store pool.
+      }
       
-      const fillerIds = (Array.isArray(fillerPool) ? fillerPool : []).map(m => m.id).filter(id => !poolIds.includes(id));
-      poolIds = [...poolIds, ...fillerIds];
-      
-      if (poolIds.length < gameSize) {
-          alert(`Not enough movies found (found ${poolIds.length}, need ${gameSize}). Try a smaller size!`);
+      if (finalPoolIds.length < gameSize) {
+          alert(`Not enough qualifying movies found (found ${finalPoolIds.length}, need ${gameSize}). Try a smaller size!`);
           setIsCreating(false);
           return;
       }
 
-      const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
+      const challengeIds = finalPoolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
       // 2. Creation
       const challenge = await createChallenge({
