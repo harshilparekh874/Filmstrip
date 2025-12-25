@@ -1,6 +1,7 @@
 
 export interface LetterboxdMovie {
   name: string;
+  year: number;
   dateWatched: string;
 }
 
@@ -32,23 +33,25 @@ export const parseLetterboxdCSV = (csvText: string): LetterboxdMovie[] => {
 
   const headers = parseLine(lines[0]);
   const nameIdx = headers.findIndex(h => h.toLowerCase() === 'name');
+  const yearIdx = headers.findIndex(h => h.toLowerCase() === 'year');
   const dateIdx = headers.findIndex(h => h.toLowerCase() === 'date');
 
-  // Strictly Name and Date
-  if (nameIdx === -1 || dateIdx === -1) return [];
+  // Name, Year, and Date are now all used for high-accuracy migration
+  if (nameIdx === -1 || dateIdx === -1 || yearIdx === -1) return [];
 
   const results: LetterboxdMovie[] = [];
 
   for (let i = 1; i < lines.length; i++) {
     const parts = parseLine(lines[i]);
-    if (parts.length <= Math.max(nameIdx, dateIdx)) continue;
+    if (parts.length <= Math.max(nameIdx, dateIdx, yearIdx)) continue;
 
     const rawName = parts[nameIdx];
     const name = rawName.replace(/^"|"$/g, '').trim();
+    const year = parseInt(parts[yearIdx]) || 0;
     const dateWatched = parts[dateIdx].trim();
 
     if (name && dateWatched) {
-      results.push({ name, dateWatched });
+      results.push({ name, year, dateWatched });
     }
   }
 

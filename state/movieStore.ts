@@ -189,15 +189,18 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     for (let i = 0; i < lbMovies.length; i++) {
       const lb = lbMovies[i];
       try {
-        // Search by Name only as requested
-        const searchResults = await tmdbApi.searchMovies(lb.name);
-        const match = searchResults[0]; // Pick most popular match
+        // DISAMBIGUATION: Search with BOTH Name and Year
+        const searchQuery = `${lb.name} ${lb.year}`.trim();
+        const searchResults = await tmdbApi.searchMovies(searchQuery);
+        
+        // Pick the best match: exactly matches the year or is the top search result
+        const match = searchResults.find(m => m.year === lb.year) || searchResults[0];
         
         if (match && !existingMovieIds.has(match.id)) {
           const parsedDate = new Date(lb.dateWatched);
           const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
           
-          // Row offset (minus i) ensures the first movie in the CSV stays at the top/left
+          // Row offset (minus i) ensures the visual order is maintained
           const finalTimestamp = baseTime - i;
 
           const entry: UserMovieEntry = {
