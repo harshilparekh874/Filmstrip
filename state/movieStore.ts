@@ -4,6 +4,7 @@ import { Movie, UserMovieEntry, Recommendation } from '../core/types/models';
 import { movieRepo } from '../data/repositories/movieRepo';
 import { getRecommendations, findSimilarByGenre } from '../core/recommendations/engine';
 import { tmdbApi } from '../data/api/tmdbApi';
+import { LetterboxdMovie } from '../core/utils/csvParser';
 
 export interface GroupedRecommendation {
   sourceMovie: Movie;
@@ -25,6 +26,7 @@ interface MovieState {
   seedMovies: (newMovies: Movie[]) => void;
   search: (query: string) => Promise<void>;
   updateEntry: (entry: UserMovieEntry) => Promise<void>;
+  batchImportWatched: (userId: string, lbMovies: LetterboxdMovie[], onProgress: (p: number) => void) => Promise<void>;
   deleteEntry: (userId: string, movieId: string) => Promise<void>;
   clearSearch: () => void;
 }
@@ -59,8 +61,10 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         movieRepo.getFriendEntries(userId)
       ]);
 
+      const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
       const historyIds = new Set([
-        ...userEntries.map(e => e.movieId),
+        ...sortedUserEntries.map(e => e.movieId),
         ...friendEntries.map(e => e.movieId)
       ]);
       
@@ -72,7 +76,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
       
       let pool = [...popularMovies, ...(missingMovies.filter(Boolean) as Movie[])];
 
-      const lastThree = [...userEntries]
+      const lastThree = [...sortedUserEntries]
         .filter(e => e.status === 'WATCHED')
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, 3);
@@ -95,9 +99,9 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
       set({ 
         movies: pool, 
-        userEntries, 
+        userEntries: sortedUserEntries, 
         friendEntries, 
-        recommendations: getRecommendations(pool, userEntries, friendEntries, userId),
+        recommendations: getRecommendations(pool, sortedUserEntries, friendEntries, userId),
         groupedRecommendations: grouped,
         isLoading: false 
       });
@@ -147,12 +151,16 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
     const existingIndex = state.userEntries.findIndex(e => e.movieId === updatedEntry.movieId);
     let newEntries = [...state.userEntries];
-    if (existingIndex > -1) newEntries[existingIndex] = updatedEntry;
-    else newEntries.push(updatedEntry);
+    if (existingIndex > -1) {
+        newEntries[existingIndex] = updatedEntry;
+    } else {
+        newEntries.unshift(updatedEntry);
+    }
     
+    newEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
     const lastThree = newEntries
       .filter(e => e.status === 'WATCHED')
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
       .slice(0, 3);
 
     const newGrouped = lastThree.map(e => {
@@ -171,6 +179,40 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     });
 
     movieRepo.updateEntry(updatedEntry);
+  },
+
+  batchImportWatched: async (userId: string, lbMovies: LetterboxdMovie[], onProgress: (p: number) => void) => {
+    set({ isLoading: true });
+    let completed = 0;
+    
+    const existingMovieIds = new Set(get().userEntries.map(e => e.movieId));
+    
+    // Process in small serial batches to avoid slamming TMDB
+    for (const lb of lbMovies) {
+      try {
+        const searchResults = await tmdbApi.searchMovies(`${lb.name} ${lb.year}`);
+        // Find best match by year parity
+        const match = searchResults.find(m => Math.abs(m.year - lb.year) <= 1);
+        
+        if (match && !existingMovieIds.has(match.id)) {
+          const entry: UserMovieEntry = {
+            userId,
+            movieId: match.id,
+            status: 'WATCHED',
+            timestamp: new Date(lb.dateWatched).getTime() || Date.now()
+          };
+          await get().updateEntry(entry);
+          existingMovieIds.add(match.id);
+        }
+      } catch (err) {
+        console.warn(`Failed to resolve: ${lb.name}`, err);
+      }
+      completed++;
+      onProgress(Math.floor((completed / lbMovies.length) * 100));
+    }
+
+    set({ isLoading: false });
+    await get().fetchData(userId, true);
   },
 
   deleteEntry: async (userId: string, movieId: string) => {

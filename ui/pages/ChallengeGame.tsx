@@ -95,14 +95,13 @@ export const ChallengeGame: React.FC = () => {
   const deriveIsMyTurn = () => {
       if (!localChallenge || !user) return false;
       
-      // If turnUserId is specifically us
-      if (localChallenge.turnUserId === user.id) return true;
+      // If turnUserId is null/missing and we are the creator, we take the lead
+      if (!localChallenge.turnUserId) {
+          return localChallenge.creatorId === user.id;
+      }
       
-      // Fallback: If turnUserId is invalid/missing and we are the creator, assume we start
-      const someoneElseHasTurn = localChallenge.turnUserId === (localChallenge.creatorId === user.id ? localChallenge.recipientId : localChallenge.creatorId);
-      if (!localChallenge.turnUserId && localChallenge.creatorId === user.id && !someoneElseHasTurn) return true;
-
-      return false;
+      // Strict turn check
+      return localChallenge.turnUserId === user.id;
   };
 
   const isMyTurn = deriveIsMyTurn();
@@ -141,7 +140,7 @@ export const ChallengeGame: React.FC = () => {
   }, [localChallenge]);
 
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
-    if (!id || !user || !localChallenge) return;
+    if (!id || !user || !localChallenge || !opponentId) return;
     
     // Switch turn to opponent
     await updateChallenge(id, {

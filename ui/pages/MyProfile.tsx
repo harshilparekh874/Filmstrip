@@ -6,6 +6,8 @@ import { useThemeStore } from '../../state/themeStore';
 import { tmdbApi } from '../../data/api/tmdbApi';
 import { movieRepo } from '../../data/repositories/movieRepo';
 import { Movie } from '../../core/types/models';
+import { parseLetterboxdCSV } from '../../core/utils/csvParser';
+import { useMovieStore } from '../../state/movieStore';
 
 const GENRES = [
   'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation',
@@ -16,8 +18,10 @@ const GENRES = [
 export const MyProfile: React.FC = () => {
   const { user, updateUser, logout } = useAuthStore();
   const { isDarkMode, toggleTheme } = useThemeStore();
+  const { batchImportWatched } = useMovieStore();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -31,6 +35,7 @@ export const MyProfile: React.FC = () => {
   const [movieSearch, setMovieSearch] = useState('');
   const [movieResults, setMovieResults] = useState<Movie[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [importProgress, setImportProgress] = useState<number | null>(null);
 
   useEffect(() => {
     const loadFav = async () => {
@@ -63,6 +68,26 @@ export const MyProfile: React.FC = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleCSVImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const parsed = parseLetterboxdCSV(text);
+      if (parsed.length > 0) {
+        setImportProgress(0);
+        await batchImportWatched(user.id, parsed, (p) => setImportProgress(p));
+        setImportProgress(null);
+        alert(`Successfully processed ${parsed.length} movies!`);
+      } else {
+        alert("Could not find any movies in that CSV. Check the format!");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleSave = async () => {
@@ -126,6 +151,46 @@ export const MyProfile: React.FC = () => {
           <p className="text-slate-400 dark:text-slate-500 text-xs mt-1">{user.email}</p>
         </div>
       </section>
+
+      {/* Migration Tools */}
+      {!isEditing && (
+        <section className="bg-emerald-600 dark:bg-emerald-500 p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden transition-colors">
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+          <div className="flex items-center justify-between gap-6 relative">
+            <div className="space-y-2">
+              <h2 className="text-sm font-black uppercase tracking-widest opacity-80 flex items-center gap-2">
+                <span>Migration</span>
+                <span className="px-2 py-0.5 bg-white/20 rounded-md text-[10px]">Letterboxd</span>
+              </h2>
+              <h3 className="text-xl font-bold">Import your watch history</h3>
+              <p className="text-sm opacity-70">Upload your Letterboxd CSV to sync your library instantly.</p>
+            </div>
+            
+            <button 
+              onClick={() => csvInputRef.current?.click()}
+              disabled={importProgress !== null}
+              className={`flex-shrink-0 px-6 py-3 bg-white text-emerald-600 font-black uppercase text-xs tracking-widest rounded-2xl shadow-lg transition active:scale-95 ${importProgress !== null ? 'opacity-50' : 'hover:bg-emerald-50'}`}
+            >
+              {importProgress !== null ? `Syncing ${importProgress}%` : 'Upload CSV'}
+            </button>
+            <input 
+              type="file" 
+              ref={csvInputRef} 
+              onChange={handleCSVImport} 
+              className="hidden" 
+              accept=".csv" 
+            />
+          </div>
+          {importProgress !== null && (
+            <div className="mt-6 h-1 w-full bg-white/20 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-white transition-all duration-300"
+                style={{ width: `${importProgress}%` }}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Settings Sections */}
       <div className="space-y-6">

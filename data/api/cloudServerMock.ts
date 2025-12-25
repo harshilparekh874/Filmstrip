@@ -2,7 +2,7 @@
 import { User, ActivityEvent, Friendship, UserMovieEntry, SocialChallenge } from '../../core/types/models';
 
 /**
- * CLOUD SERVER SIMULATOR (v3.0 - Multiplayer Ready)
+ * CLOUD SERVER SIMULATOR (v3.1 - Multiplayer & Data Integrity Fixes)
  */
 
 const CLOUD_DB_KEY = 'reel_reason_global_cloud_db';
@@ -94,9 +94,13 @@ export const cloudServerMock = {
 
     // MOVIE ENTRY ROUTES
     if (url === '/entries' && method === 'POST') {
+      // Data Integrity Fix: Ensure strict lookup of existing (userId, movieId) pair
       const idx = db.entries.findIndex(e => e.userId === data.userId && e.movieId === data.movieId);
-      if (idx > -1) db.entries[idx] = data;
-      else db.entries.push(data);
+      if (idx > -1) {
+        db.entries[idx] = { ...data, timestamp: data.timestamp || Date.now() };
+      } else {
+        db.entries.push({ ...data, timestamp: data.timestamp || Date.now() });
+      }
       
       db.activity.unshift({
         id: Math.random().toString(36).substr(2, 9),
@@ -119,8 +123,8 @@ export const cloudServerMock = {
       const newChallenge: SocialChallenge = {
         ...data,
         id: 'ch_' + Math.random().toString(36).substr(2, 9),
-        turnUserId: data.creatorId, // Creator starts the first turn
-        status: 'PENDING',
+        turnUserId: data.turnUserId || data.creatorId,
+        status: data.status || 'PENDING',
         timestamp: Date.now()
       };
       db.challenges.push(newChallenge);

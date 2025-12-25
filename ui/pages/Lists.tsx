@@ -22,7 +22,10 @@ export const Lists: React.FC = () => {
 
   const filteredEntries = userEntries.filter(e => e.status === (status as WatchStatus));
   
-  const items = filteredEntries
+  // Sort by timestamp DESC (most recent first)
+  const sortedEntries = [...filteredEntries].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+  const items = sortedEntries
     .map(e => ({
       movie: movies.find(m => m.id === e.movieId),
       entry: e
