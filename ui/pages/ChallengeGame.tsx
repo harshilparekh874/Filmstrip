@@ -31,6 +31,15 @@ export const ChallengeGame: React.FC = () => {
     if (found) setLocalChallenge(found);
   }, [challenges, id]);
 
+  // POLLING: Check for updates every 5 seconds so turns are real-time
+  useEffect(() => {
+    if (!user?.id || !id) return;
+    const interval = setInterval(() => {
+      fetchSocial(user.id);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [id, user?.id, fetchSocial]);
+
   useEffect(() => {
     const init = async () => {
       if (!user?.id || !id) return;
@@ -112,6 +121,11 @@ export const ChallengeGame: React.FC = () => {
       return localChallenge.results?.bracketState || null;
   }, [localChallenge]);
 
+  const tierState = useMemo(() => {
+      if (localChallenge?.type !== 'TIERLIST') return null;
+      return localChallenge.results?.tierState || null;
+  }, [localChallenge]);
+
   const currentQuizMovie = useMemo(() => {
     if (!quizState) return null;
     return gameMovies[quizState.index] || null;
@@ -133,7 +147,6 @@ export const ChallengeGame: React.FC = () => {
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
     if (!id || !user || !localChallenge) return;
     
-    // Switch turn logic: if it was my turn, it's now the opponent's turn.
     const nextTurnUserId = isFinal 
         ? localChallenge.creatorId 
         : (user.id === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId);
@@ -211,10 +224,32 @@ export const ChallengeGame: React.FC = () => {
     }
   };
 
+  const handleTierAssign = (movieId: string, tier: string) => {
+    if (!isMyTurn || !tierState) return;
+    const nextQueue = tierState.queue.filter((id: string) => id !== movieId);
+    const nextTiers = { ...tierState.tiers };
+    nextTiers[tier] = [...nextTiers[tier], movieId];
+
+    const nextResults = {
+      tierState: {
+        queue: nextQueue,
+        tiers: nextTiers
+      }
+    };
+
+    if (nextQueue.length === 0) {
+      handleNextTurn(nextResults, true);
+    } else {
+      handleNextTurn(nextResults);
+    }
+  };
+
   if (!localChallenge) return <div className="flex h-[70vh] items-center justify-center"><div className="animate-spin h-12 w-12 border-4 border-indigo-500 border-t-transparent rounded-full"></div></div>;
 
   if (localChallenge.status === 'COMPLETED') {
       const isQuiz = localChallenge.type === 'GUESS_THE_MOVIE';
+      const isTier = localChallenge.type === 'TIERLIST';
+
       return (
           <div className="space-y-10 pb-32 animate-in fade-in duration-500 text-center max-w-2xl mx-auto">
               <header>
@@ -233,6 +268,25 @@ export const ChallengeGame: React.FC = () => {
                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-2">Skipped / Missed</p>
                       </div>
                   </div>
+              ) : isTier ? (
+                <div className="space-y-4">
+                  {['S', 'A', 'B', 'C', 'D'].map(tier => (
+                    <div key={tier} className="flex gap-4 p-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0 ${
+                        tier === 'S' ? 'bg-red-500 text-white' : 
+                        tier === 'A' ? 'bg-orange-500 text-white' : 
+                        tier === 'B' ? 'bg-yellow-500 text-white' : 
+                        tier === 'C' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'
+                      }`}>{tier}</div>
+                      <div className="flex gap-2">
+                        {localChallenge.results?.tierState?.tiers[tier]?.map((mId: string) => {
+                          const movie = movies.find(m => m.id === mId);
+                          return movie ? <img key={mId} src={movie.posterUrl} className="w-10 rounded-lg shadow-md" alt="tier item" /> : null;
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="max-w-md mx-auto bg-white dark:bg-slate-900 p-10 rounded-[3.5rem] shadow-2xl border border-indigo-100 dark:border-indigo-900/30">
                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600 dark:text-indigo-400 mb-6">The Champion</p>
@@ -248,7 +302,7 @@ export const ChallengeGame: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 mt-10">
                   <button onClick={() => navigate('/social')} className="px-10 py-5 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-3xl hover:bg-indigo-700 transition">Back to Social Hub</button>
                   <button onClick={handleEndBattle} className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline">Permanently Remove Battle Records</button>
               </div>
@@ -271,12 +325,12 @@ export const ChallengeGame: React.FC = () => {
               </button>
           </div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
-            {localChallenge.type === 'BRACKET' ? 'Bracket Fight' : (localChallenge.type === 'TIERLIST' ? 'Tier List' : 'Guess the Movie')}
+            {localChallenge.type === 'BRACKET' ? 'Bracket Fight' : (localChallenge.type === 'TIERLIST' ? 'Tier List Ranking' : 'Guess the Movie')}
           </h1>
           <div className="flex items-center gap-3 mt-2">
               <p className="text-slate-500 dark:text-slate-400">
                 Playing with <strong>{opponent?.firstName || 'Friend'}</strong> • 
-                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn!</span> : <span className="text-slate-400 ml-2">Waiting for {opponent?.firstName || 'friend'}...</span>}
+                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn!</span> : <span className="text-slate-400 ml-2 italic">Waiting for {opponent?.firstName || 'friend'}...</span>}
               </p>
           </div>
         </div>
@@ -294,15 +348,73 @@ export const ChallengeGame: React.FC = () => {
         )}
       </header>
 
-      {/* GAME CONTENT FALLBACK */}
-      {((localChallenge.type === 'GUESS_THE_MOVIE' && !quizState) || (localChallenge.type === 'BRACKET' && !bracketState)) && (
-          <div className="p-20 text-center bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-dashed border-indigo-100 dark:border-indigo-900/30">
-              <div className="animate-bounce text-4xl mb-4">🍿</div>
-              <h2 className="text-xl font-bold dark:text-white">Preparing Battle...</h2>
-              <p className="text-slate-400 text-sm mt-2">Syncing game data with the server.</p>
-          </div>
+      {/* TIER LIST UI */}
+      {localChallenge.type === 'TIERLIST' && tierState && (
+        <div className="space-y-12">
+            {/* Movie Queue */}
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Movie Queue</h2>
+                    <span className="text-[10px] font-black text-indigo-600">{tierState.queue.length} Left</span>
+                </div>
+                {tierState.queue.length > 0 ? (
+                  <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+                    {tierState.queue.map((mId: string) => {
+                        const movie = movies.find(m => m.id === mId);
+                        if (!movie) return null;
+                        return (
+                          <div key={mId} className="shrink-0 group">
+                              <img src={movie.posterUrl} className="w-24 aspect-[2/3] rounded-2xl shadow-lg border-2 border-transparent group-hover:border-indigo-500 transition cursor-pointer" alt="queue item" />
+                              <div className="flex gap-1 mt-2">
+                                {['S', 'A', 'B', 'C', 'D'].map(t => (
+                                  <button 
+                                    key={t} 
+                                    disabled={!isMyTurn}
+                                    onClick={() => handleTierAssign(mId, t)}
+                                    className={`w-6 h-6 rounded-md text-[8px] font-black transition ${
+                                      t === 'S' ? 'bg-red-500 text-white' : 
+                                      t === 'A' ? 'bg-orange-500 text-white' : 
+                                      t === 'B' ? 'bg-yellow-500 text-white' : 
+                                      t === 'C' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'
+                                    }`}
+                                  >
+                                    {t}
+                                  </button>
+                                ))}
+                              </div>
+                          </div>
+                        );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-center py-6 text-slate-400 italic">All movies ranked! Finalizing...</p>
+                )}
+            </div>
+
+            {/* Tiers Display */}
+            <div className="space-y-4">
+                {['S', 'A', 'B', 'C', 'D'].map(tier => (
+                  <div key={tier} className="flex gap-6 p-6 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto">
+                    <div className={`w-16 h-16 rounded-[1.25rem] flex items-center justify-center font-black text-2xl shrink-0 ${
+                      tier === 'S' ? 'bg-red-500 text-white' : 
+                      tier === 'A' ? 'bg-orange-500 text-white' : 
+                      tier === 'B' ? 'bg-yellow-500 text-white' : 
+                      tier === 'C' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'
+                    }`}>{tier}</div>
+                    <div className="flex gap-3 items-center">
+                      {tierState.tiers[tier]?.map((mId: string) => {
+                        const movie = movies.find(m => m.id === mId);
+                        return movie ? <img key={mId} src={movie.posterUrl} className="w-14 rounded-xl shadow-md" alt="ranked movie" /> : null;
+                      })}
+                      {tierState.tiers[tier]?.length === 0 && <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest">No movies assigned</span>}
+                    </div>
+                  </div>
+                ))}
+            </div>
+        </div>
       )}
 
+      {/* GUESS THE MOVIE UI */}
       {localChallenge.type === 'GUESS_THE_MOVIE' && currentQuizMovie && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
               <div className="lg:col-span-4 space-y-6">
@@ -409,6 +521,7 @@ export const ChallengeGame: React.FC = () => {
           </div>
       )}
 
+      {/* BRACKET UI */}
       {localChallenge.type === 'BRACKET' && bracketState && (
           <div className="space-y-12">
             <div className="text-center">
@@ -417,7 +530,7 @@ export const ChallengeGame: React.FC = () => {
                 </span>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center relative">
                 {[bracketState.items[bracketState.index], bracketState.items[bracketState.index + 1]].map((mId, idx) => {
                     const movie = movies.find(m => m.id === mId);
                     return movie ? (
@@ -438,13 +551,14 @@ export const ChallengeGame: React.FC = () => {
                             <p className="text-xs text-slate-400 uppercase font-black tracking-widest mt-1">{movie.year}</p>
                         </div>
                     ) : (
-                        <div key={`loading-${idx}`} className="w-64 aspect-[2/3] bg-slate-100 dark:bg-slate-800 animate-pulse rounded-[2.5rem] flex items-center justify-center">
-                            <span className="text-[10px] font-black uppercase text-slate-400">Loading Movie...</span>
+                        <div key={`loading-${idx}`} className="w-64 aspect-[2/3] bg-slate-100 dark:bg-slate-800 animate-pulse rounded-[2.5rem] flex items-center justify-center mx-auto">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Loading...</span>
                         </div>
                     );
                 })}
                 
-                <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-2xl border-4 border-white z-10">VS</div>
+                {/* VS Badge positioned correctly to not overlap labels */}
+                <div className="hidden md:flex absolute left-1/2 top-[10rem] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-2xl border-4 border-white z-10">VS</div>
             </div>
           </div>
       )}

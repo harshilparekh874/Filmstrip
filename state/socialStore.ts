@@ -113,7 +113,6 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   },
 
   createChallenge: async (challenge: Partial<SocialChallenge>) => {
-    // CRITICAL: Initialize results so the recipient isn't met with an empty state
     const movieIds = challenge.movieIds || [];
     let initialResults: any = {};
 
@@ -132,6 +131,15 @@ export const useSocialStore = create<SocialState>((set, get) => ({
         correct: [],
         skipped: [],
         startTime: Date.now()
+      };
+    } else if (challenge.type === 'TIERLIST') {
+      initialResults = {
+        tierState: {
+          queue: movieIds,
+          tiers: {
+            'S': [], 'A': [], 'B': [], 'C': [], 'D': []
+          }
+        }
       };
     }
 
