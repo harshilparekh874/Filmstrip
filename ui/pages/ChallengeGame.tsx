@@ -18,12 +18,12 @@ export const ChallengeGame: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isEnding, setIsEnding] = useState(false);
   const [showWrongShake, setShowWrongShake] = useState(false);
-  const [isRevealing, setIsRevealing] = useState(false); // New state for post-guess reveal
+  const [isRevealing, setIsRevealing] = useState(false); 
   
-  const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
   const hasEverSeenChallenge = useRef(false);
   const storeHasSyncedRef = useRef(false);
+  const fetchedIdsRef = useRef(new Set<string>());
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
@@ -69,27 +69,52 @@ export const ChallengeGame: React.FC = () => {
     init();
   }, [id, user?.id, fetchSocial]);
 
-  // 2. MOVIE METADATA RESOLUTION (Including Cast)
+  const quizState = useMemo(() => {
+      if (localChallenge?.type !== 'GUESS_THE_MOVIE') return null;
+      return localChallenge.results || { index: 0, correct: [], skipped: [], startTime: Date.now() };
+  }, [localChallenge]);
+
+  // 2. ULTRA-FAST DATA RESOLUTION
+  // We prioritize the CURRENT movie so you can play immediately, then fetch others in background.
   useEffect(() => {
-    const resolveMovies = async () => {
-      if (!localChallenge || hasAttemptedResolution.current) return;
-      // We check for cast presence specifically to ensure hints are ready
-      const missingOrIncomplete = localChallenge.movieIds.filter(mId => {
-        const m = movies.find(storeM => storeM.id === mId);
-        return !m || !m.cast || m.cast.length === 0;
+    const resolveActiveData = async () => {
+      if (!localChallenge || !quizState) return;
+      
+      const currentIndex = quizState.index;
+      const currentMovieId = localChallenge.movieIds[currentIndex];
+      
+      if (!currentMovieId) return;
+
+      // 1. PRIORITIZED FETCH: Get the current movie details NOW
+      const currentMovie = movies.find(m => m.id === currentMovieId);
+      if (!currentMovie || !currentMovie.cast || currentMovie.cast.length === 0) {
+          if (!fetchedIdsRef.current.has(currentMovieId)) {
+              fetchedIdsRef.current.add(currentMovieId);
+              const movie = await movieRepo.getMovieById(currentMovieId).catch(() => null);
+              if (movie) seedMovies([movie]);
+          }
+      }
+
+      // 2. BACKGROUND FETCH: Get the rest in parallel
+      const missingIds = localChallenge.movieIds.filter(mId => {
+        const m = movies.find(sm => sm.id === mId);
+        return (!m || !m.cast || m.cast.length === 0) && !fetchedIdsRef.current.has(mId);
       });
 
-      if (missingOrIncomplete.length > 0) {
-        hasAttemptedResolution.current = true;
-        try {
-          const fetched = await Promise.all(missingOrIncomplete.map(mId => movieRepo.getMovieById(mId).catch(() => null)));
-          const validMovies = fetched.filter(Boolean) as Movie[];
-          if (validMovies.length > 0) seedMovies(validMovies);
-        } catch (err) { console.error("Failed to fetch game movies", err); }
+      if (missingIds.length > 0) {
+        missingIds.forEach(id => fetchedIdsRef.current.add(id));
+        
+        // Execute all background fetches in parallel (not batched) for maximum speed
+        Promise.all(missingIds.map(mId => movieRepo.getMovieById(mId).catch(() => null)))
+          .then(results => {
+            const valid = results.filter(Boolean) as Movie[];
+            if (valid.length > 0) seedMovies(valid);
+          });
       }
     };
-    resolveMovies();
-  }, [localChallenge, movies, seedMovies]);
+
+    resolveActiveData();
+  }, [localChallenge, quizState?.index, movies, seedMovies]);
 
   // 3. GUESS GAME TIMER & SEARCH
   useEffect(() => {
@@ -135,19 +160,14 @@ export const ChallengeGame: React.FC = () => {
       if (found) return found;
       return { 
         id: mId, 
-        title: 'Syncing DNA...', 
-        posterUrl: 'https://via.placeholder.com/300x450?text=Syncing+Movie...',
+        title: '...', 
+        posterUrl: 'https://via.placeholder.com/300x450?text=Syncing...',
         genres: [],
         year: 0,
         cast: []
       } as Movie;
     });
   }, [localChallenge, movies]);
-
-  const quizState = useMemo(() => {
-      if (localChallenge?.type !== 'GUESS_THE_MOVIE') return null;
-      return localChallenge.results || { index: 0, correct: [], skipped: [], startTime: Date.now() };
-  }, [localChallenge]);
 
   const currentQuizMovie = useMemo(() => {
     if (!quizState) return null;
@@ -195,7 +215,6 @@ export const ChallengeGame: React.FC = () => {
           return;
       }
 
-      // Success Reveal Animation
       setIsRevealing(true);
       
       const nextResults = { 
@@ -208,7 +227,6 @@ export const ChallengeGame: React.FC = () => {
       setHintLevel(0);
       clearSearch();
 
-      // Wait 1.5s for player to see the poster before moving on
       setTimeout(() => {
         setIsRevealing(false);
         if (nextResults.index >= gameMovies.length) {
@@ -352,10 +370,10 @@ export const ChallengeGame: React.FC = () => {
                       {/* Hint 1: Cast */}
                       <div className="space-y-3">
                           <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Initial Hint: Starring</h3>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-2 min-h-[40px]">
                               {currentQuizMovie.cast && currentQuizMovie.cast.length > 0 ? (
                                   currentQuizMovie.cast.slice(0, 3).map(c => (
-                                      <span key={c.id} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold dark:text-slate-200 border border-slate-200/50 dark:border-slate-700/50">
+                                      <span key={c.id} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold dark:text-slate-200 border border-slate-200/50 dark:border-slate-700/50 animate-in fade-in zoom-in-90 duration-300">
                                         {c.name}
                                       </span>
                                   ))

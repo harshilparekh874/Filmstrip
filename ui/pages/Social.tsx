@@ -102,12 +102,27 @@ export const Social: React.FC = () => {
                 {activeChallenges.map(challenge => {
                     const opponentId = challenge.creatorId === currentUser?.id ? challenge.recipientId : challenge.creatorId;
                     const opponent = allUsers?.find(u => u.id === opponentId);
+                    
+                    const getGameLabel = () => {
+                      if (challenge.type === 'BRACKET') return 'Bracket Fight';
+                      if (challenge.type === 'TIERLIST') return 'Tier List';
+                      if (challenge.type === 'GUESS_THE_MOVIE') return 'Guess Game';
+                      return 'Battle';
+                    };
+
+                    const getGameIcon = () => {
+                      if (challenge.type === 'BRACKET') return '🥊';
+                      if (challenge.type === 'TIERLIST') return '📊';
+                      if (challenge.type === 'GUESS_THE_MOVIE') return '🕵️';
+                      return '🎲';
+                    };
+
                     return (
                         <div key={challenge.id} className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="text-2xl">{challenge.type === 'BRACKET' ? '🥊' : '📊'}</div>
+                                <div className="text-2xl">{getGameIcon()}</div>
                                 <div>
-                                    <p className="font-bold text-sm">{challenge.type === 'BRACKET' ? 'Bracket Fight' : 'Tier List'} w/ {opponent?.firstName || 'Friend'}</p>
+                                    <p className="font-bold text-sm">{getGameLabel()} w/ {opponent?.firstName || 'Friend'}</p>
                                     <p className="text-[10px] uppercase font-black opacity-60 tracking-widest">{challenge.size} Movies</p>
                                 </div>
                             </div>
