@@ -143,20 +143,32 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       };
     }
 
-    const res = await socialRepo.createChallenge({
-      ...challenge,
-      results: initialResults
-    });
-    
-    // Explicitly add to local state immediately to avoid race conditions during navigation
-    set(state => ({ challenges: [...state.challenges, res] }));
-    return res;
+    try {
+      const res = await socialRepo.createChallenge({
+        ...challenge,
+        results: initialResults
+      });
+      
+      // Supabase sometimes returns an array even for single inserts
+      const finalChallenge = Array.isArray(res) ? res[0] : res;
+
+      if (!finalChallenge || !finalChallenge.id) {
+          throw new Error("Invalid response from server during challenge creation");
+      }
+      
+      set(state => ({ challenges: [...state.challenges, finalChallenge] }));
+      return finalChallenge;
+    } catch (err) {
+      console.error("Store error during creation:", err);
+      throw err;
+    }
   },
 
   updateChallenge: async (id: string, updates: Partial<SocialChallenge>) => {
     const res = await socialRepo.updateChallenge(id, updates);
+    const updated = Array.isArray(res) ? res[0] : res;
     set(state => ({
-      challenges: state.challenges.map(c => c.id === id ? res : c)
+      challenges: state.challenges.map(c => c.id === id ? updated : c)
     }));
   },
 

@@ -22,6 +22,7 @@ export const ChallengeGame: React.FC = () => {
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
   const hasEverSeenChallenge = useRef(false);
+  const storeHasSyncedRef = useRef(false);
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
@@ -31,23 +32,28 @@ export const ChallengeGame: React.FC = () => {
 
   // 1. DATA SYNC & DELETION POLLING
   useEffect(() => {
-    // Attempt to find the challenge in our current state
+    if (socialLoading) return;
+
     const found = challenges.find(c => c.id === id);
     
     if (found) {
       setLocalChallenge(found);
       isInitialLoadRef.current = false;
       hasEverSeenChallenge.current = true;
+      storeHasSyncedRef.current = true;
     } else {
-      // If we've seen it before and it's suddenly gone while we aren't loading, then it was deleted.
-      if (!socialLoading && hasEverSeenChallenge.current && !isEnding && !isInitialLoadRef.current) {
+      // THE CRITICAL FIX: Only navigate away if we:
+      // 1. Once saw the challenge (it existed)
+      // 2. The store has completed at least one sync on this page
+      // 3. We are not currently "Ending" the battle ourselves
+      if (hasEverSeenChallenge.current && storeHasSyncedRef.current && !isEnding && !isInitialLoadRef.current) {
         alert("Battle terminated. Your opponent has ended this session.");
         navigate('/social');
       }
     }
   }, [challenges, id, navigate, isEnding, socialLoading]);
 
-  // Periodic Refresh (snappier turn detection)
+  // Snappy turn detection
   useEffect(() => {
     if (!user?.id || !id) return;
     const interval = setInterval(() => {
@@ -56,12 +62,12 @@ export const ChallengeGame: React.FC = () => {
     return () => clearInterval(interval);
   }, [id, user?.id, fetchSocial]);
 
-  // Initial Fetch if missing
+  // Initial Fetch if missing from cache
   useEffect(() => {
     const init = async () => {
       if (!user?.id || !id) return;
       const found = challenges.find(c => c.id === id);
-      if (!found && isInitialLoadRef.current) {
+      if (!found) {
         try { 
           await fetchSocial(user.id); 
         } catch (err) { 
@@ -102,7 +108,8 @@ export const ChallengeGame: React.FC = () => {
     if (localChallenge?.type === 'GUESS_THE_MOVIE' && localChallenge.status === 'ACTIVE' && localChallenge.turnUserId === user?.id) {
         if (timeLeft === null) {
             const limit = (localChallenge.config?.timeLimitMins || 5) * 60;
-            const elapsed = Math.floor((Date.now() - (localChallenge.results?.startTime || Date.now())) / 1000);
+            const startTime = localChallenge.results?.startTime || Date.now();
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
             setTimeLeft(Math.max(0, limit - elapsed));
         }
 
@@ -130,11 +137,10 @@ export const ChallengeGame: React.FC = () => {
     return localChallenge.movieIds.map(mId => {
       const found = movies.find(m => m.id === mId);
       if (found) return found;
-      // Critical: Ensure a placeholder poster exists so the game "shows up" even while metadata syncs
       return { 
         id: mId, 
-        title: 'Loading...', 
-        posterUrl: 'https://via.placeholder.com/300x450?text=Syncing+DNA...',
+        title: 'Syncing...', 
+        posterUrl: 'https://via.placeholder.com/300x450?text=Syncing+Movie...',
         genres: [],
         year: 0
       } as Movie;
@@ -143,7 +149,8 @@ export const ChallengeGame: React.FC = () => {
 
   const quizState = useMemo(() => {
       if (localChallenge?.type !== 'GUESS_THE_MOVIE') return null;
-      return localChallenge.results || null;
+      // If results are missing for some reason, provide emergency fallback state
+      return localChallenge.results || { index: 0, correct: [], skipped: [], startTime: Date.now() };
   }, [localChallenge]);
 
   const bracketState = useMemo(() => {
@@ -494,7 +501,7 @@ export const ChallengeGame: React.FC = () => {
           </div>
       )}
 
-      {/* TIER LIST & BRACKET RENDER AS BEFORE (Omitted for brevity but assumed present) */}
+      {/* TIER LIST & BRACKET RENDER AS BEFORE */}
       {localChallenge.type === 'TIERLIST' && tierState && (
           <div className="p-10 text-center text-slate-400 italic">Tier list functionality active...</div>
       )}

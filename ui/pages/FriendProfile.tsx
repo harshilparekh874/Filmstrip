@@ -33,27 +33,22 @@ export const FriendProfile: React.FC = () => {
       
       try {
         const [u, e] = await Promise.all([
-          userRepo.getUserById(id),
-          movieRepo.getUserEntries(id)
+          userRepo.getUserById(id).catch(() => null),
+          movieRepo.getUserEntries(id).catch(() => [])
         ]);
 
-        setFriend(u || null);
+        if (u) setFriend(u);
         const safeEntries = Array.isArray(e) ? e : [];
         setEntries(safeEntries);
 
-        // Fetch missing movie metadata for the friend's entries
         const missingIds = safeEntries
           .map(entry => entry.movieId)
           .filter(mId => !storeMovies.find(sm => sm.id === mId));
 
         if (missingIds.length > 0) {
-          const batchSize = 40;
-          const batches = [];
-          for (let i = 0; i < Math.min(missingIds.length, 100); i += batchSize) {
-              batches.push(missingIds.slice(i, i + batchSize));
-          }
-
-          for (const batch of batches) {
+          const batchSize = 20;
+          for (let i = 0; i < Math.min(missingIds.length, 60); i += batchSize) {
+              const batch = missingIds.slice(i, i + batchSize);
               const fetched = await Promise.all(
                 batch.map(mId => movieRepo.getMovieById(mId).catch(() => null))
               );
@@ -88,31 +83,29 @@ export const FriendProfile: React.FC = () => {
     setIsCreating(true);
     
     try {
-      // 1. Compile initial pool from both users' "Watched" list
-      const myEntries = await movieRepo.getUserEntries(currentUser.id);
-      const safeMyEntries = Array.isArray(myEntries) ? myEntries : [];
-      const safeFriendEntries = Array.isArray(entries) ? entries : [];
-      
-      const myWatched = safeMyEntries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
-      const friendWatched = safeFriendEntries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
+      // 1. Gather pool
+      const [myEntries, fillerPool] = await Promise.all([
+        movieRepo.getUserEntries(currentUser.id).catch(() => []),
+        movieRepo.getAllMovies().catch(() => [])
+      ]);
+
+      const myWatched = (Array.isArray(myEntries) ? myEntries : []).filter(e => e.status === 'WATCHED').map(e => e.movieId);
+      const friendWatched = entries.filter(e => e.status === 'WATCHED').map(e => e.movieId);
       
       let poolIds = Array.from(new Set([...myWatched, ...friendWatched]));
       
-      // 2. Supplement from global pool if users haven't watched enough
-      const fillerPool = await movieRepo.getAllMovies();
-      const fillerIds = fillerPool.map(m => m.id).filter(id => !poolIds.includes(id));
+      const fillerIds = (Array.isArray(fillerPool) ? fillerPool : []).map(m => m.id).filter(id => !poolIds.includes(id));
       poolIds = [...poolIds, ...fillerIds];
       
-      // 3. Robust Verification: Ensure we have enough movies to satisfy gameSize
       if (poolIds.length < gameSize) {
-          alert(`Not enough movies found in database to start a ${gameSize}-item battle. Try a smaller size!`);
+          alert(`Not enough movies found (found ${poolIds.length}, need ${gameSize}). Try a smaller size!`);
           setIsCreating(false);
           return;
       }
 
       const challengeIds = poolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
-      // 4. Create on Server
+      // 2. Creation
       const challenge = await createChallenge({
         creatorId: currentUser.id,
         recipientId: friend.id,
@@ -125,11 +118,14 @@ export const FriendProfile: React.FC = () => {
         timestamp: Date.now()
       });
 
-      // 5. Explicit navigation
-      navigate(`/social/challenge/${challenge.id}`);
-    } catch (err) {
-      console.error("Challenge creation failed", err);
-      alert("Something went wrong while creating the battle. Please try again.");
+      if (challenge && challenge.id) {
+        navigate(`/social/challenge/${challenge.id}`);
+      } else {
+        throw new Error("Challenge ID missing from server response");
+      }
+    } catch (err: any) {
+      console.error("Challenge creation error:", err);
+      alert(`Battle failed to initialize: ${err.message || 'Check your database connection.'}`);
     } finally {
       setIsCreating(false);
       setShowModal(false);
