@@ -17,8 +17,10 @@ export const ChallengeGame: React.FC = () => {
   const [localChallenge, setLocalChallenge] = useState<SocialChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEnding, setIsEnding] = useState(false);
+  const [showWrongShake, setShowWrongShake] = useState(false);
   const hasAttemptedResolution = useRef(false);
   const isInitialLoadRef = useRef(true);
+  const hasLoadedStoreOnce = useRef(false);
 
   // Guess Game Specific State
   const [guessQuery, setGuessQuery] = useState('');
@@ -26,17 +28,28 @@ export const ChallengeGame: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const timerRef = useRef<any>(null);
 
+  // 1. DATA SYNC & DELETION POLLING
   useEffect(() => {
+    if (challenges.length > 0) hasLoadedStoreOnce.current = true;
+    
     const found = challenges.find(c => c.id === id);
-    if (found) setLocalChallenge(found);
-  }, [challenges, id]);
+    if (found) {
+      setLocalChallenge(found);
+      isInitialLoadRef.current = false;
+    } else if (hasLoadedStoreOnce.current && !isEnding && !isInitialLoadRef.current) {
+      // If we previously had the challenge but it's now missing from the store,
+      // it means the opponent deleted it.
+      alert("Battle terminated. Your opponent has ended this session.");
+      navigate('/social');
+    }
+  }, [challenges, id, navigate, isEnding]);
 
-  // POLLING: Check for updates every 5 seconds so turns are real-time
   useEffect(() => {
     if (!user?.id || !id) return;
+    // Fast polling to detect turn changes and challenge deletion by opponent
     const interval = setInterval(() => {
       fetchSocial(user.id);
-    }, 5000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [id, user?.id, fetchSocial]);
 
@@ -45,14 +58,17 @@ export const ChallengeGame: React.FC = () => {
       if (!user?.id || !id) return;
       const found = challenges.find(c => c.id === id);
       if (!found && isInitialLoadRef.current) {
-        isInitialLoadRef.current = false;
-        try { await fetchSocial(user.id); } catch (err) { setError("Failed to load battle data."); }
+        try { 
+          await fetchSocial(user.id); 
+        } catch (err) { 
+          setError("Failed to load battle data."); 
+        }
       }
     };
     init();
   }, [id, user?.id, fetchSocial]);
 
-  // Deep Resolve Movie Metadata for player who didn't create the challenge
+  // 2. MOVIE METADATA RESOLUTION
   useEffect(() => {
     const resolveMovies = async () => {
       if (!localChallenge || hasAttemptedResolution.current) return;
@@ -69,16 +85,15 @@ export const ChallengeGame: React.FC = () => {
     resolveMovies();
   }, [localChallenge, movies, seedMovies]);
 
-  // Handle Search for Guessing
+  // 3. GUESS GAME LOGIC
   useEffect(() => {
     const timer = setTimeout(() => {
       if (guessQuery.length > 2) search(guessQuery);
       else clearSearch();
     }, 400);
     return () => clearTimeout(timer);
-  }, [guessQuery]);
+  }, [guessQuery, search, clearSearch]);
 
-  // Timer Logic
   useEffect(() => {
     if (localChallenge?.type === 'GUESS_THE_MOVIE' && localChallenge.status === 'ACTIVE' && localChallenge.turnUserId === user?.id) {
         if (timeLeft === null) {
@@ -147,6 +162,7 @@ export const ChallengeGame: React.FC = () => {
   const handleNextTurn = async (newResults: any, isFinal: boolean = false) => {
     if (!id || !user || !localChallenge) return;
     
+    // Explicit turn swapping to prevent "Waiting" deadlocks
     const nextTurnUserId = isFinal 
         ? localChallenge.creatorId 
         : (user.id === localChallenge.creatorId ? localChallenge.recipientId : localChallenge.creatorId);
@@ -167,7 +183,11 @@ export const ChallengeGame: React.FC = () => {
       if (!isMyTurn || !quizState || !currentQuizMovie) return;
       
       const isCorrect = guessMovieId === currentQuizMovie.id;
-      if (!isCorrect) return;
+      if (!isCorrect) {
+          setShowWrongShake(true);
+          setTimeout(() => setShowWrongShake(false), 500);
+          return;
+      }
 
       const nextResults = { 
           ...quizState, 
@@ -330,7 +350,7 @@ export const ChallengeGame: React.FC = () => {
           <div className="flex items-center gap-3 mt-2">
               <p className="text-slate-500 dark:text-slate-400">
                 Playing with <strong>{opponent?.firstName || 'Friend'}</strong> • 
-                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase">Your Turn!</span> : <span className="text-slate-400 ml-2 italic">Waiting for {opponent?.firstName || 'friend'}...</span>}
+                {isMyTurn ? <span className="text-indigo-600 dark:text-indigo-400 font-black ml-2 animate-pulse uppercase tracking-widest">Your Turn!</span> : <span className="text-slate-400 ml-2 italic">Waiting for {opponent?.firstName || 'friend'}...</span>}
               </p>
           </div>
         </div>
@@ -348,10 +368,9 @@ export const ChallengeGame: React.FC = () => {
         )}
       </header>
 
-      {/* TIER LIST UI */}
+      {/* TIER LIST UI - Renders even if not my turn so user can see progress */}
       {localChallenge.type === 'TIERLIST' && tierState && (
-        <div className="space-y-12">
-            {/* Movie Queue */}
+        <div className={`space-y-12 transition-opacity duration-300 ${!isMyTurn ? 'opacity-80' : ''}`}>
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                     <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Movie Queue</h2>
@@ -364,7 +383,10 @@ export const ChallengeGame: React.FC = () => {
                         if (!movie) return null;
                         return (
                           <div key={mId} className="shrink-0 group">
-                              <img src={movie.posterUrl} className="w-24 aspect-[2/3] rounded-2xl shadow-lg border-2 border-transparent group-hover:border-indigo-500 transition cursor-pointer" alt="queue item" />
+                              <div className="relative">
+                                  <img src={movie.posterUrl} className="w-24 aspect-[2/3] rounded-2xl shadow-lg border-2 border-transparent group-hover:border-indigo-500 transition cursor-pointer" alt="queue item" />
+                                  {!isMyTurn && <div className="absolute inset-0 bg-slate-900/20 rounded-2xl" />}
+                              </div>
                               <div className="flex gap-1 mt-2">
                                 {['S', 'A', 'B', 'C', 'D'].map(t => (
                                   <button 
@@ -376,7 +398,7 @@ export const ChallengeGame: React.FC = () => {
                                       t === 'A' ? 'bg-orange-500 text-white' : 
                                       t === 'B' ? 'bg-yellow-500 text-white' : 
                                       t === 'C' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'
-                                    }`}
+                                    } ${!isMyTurn ? 'grayscale cursor-not-allowed opacity-50' : 'hover:scale-110 active:scale-90'}`}
                                   >
                                     {t}
                                   </button>
@@ -391,7 +413,6 @@ export const ChallengeGame: React.FC = () => {
                 )}
             </div>
 
-            {/* Tiers Display */}
             <div className="space-y-4">
                 {['S', 'A', 'B', 'C', 'D'].map(tier => (
                   <div key={tier} className="flex gap-6 p-6 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-x-auto">
@@ -414,15 +435,15 @@ export const ChallengeGame: React.FC = () => {
         </div>
       )}
 
-      {/* GUESS THE MOVIE UI */}
+      {/* GUESS THE MOVIE UI - Renders even if not user's turn */}
       {localChallenge.type === 'GUESS_THE_MOVIE' && currentQuizMovie && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+          <div className={`grid grid-cols-1 lg:grid-cols-12 gap-10 items-start transition-opacity duration-300 ${!isMyTurn ? 'opacity-80' : ''}`}>
               <div className="lg:col-span-4 space-y-6">
-                  <div className="relative aspect-[2/3] rounded-[2.5rem] overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-2xl border-4 border-white dark:border-slate-800">
+                  <div className={`relative aspect-[2/3] rounded-[2.5rem] overflow-hidden bg-slate-200 dark:bg-slate-800 shadow-2xl border-4 border-white dark:border-slate-800 transition-all ${showWrongShake ? 'animate-bounce' : ''}`}>
                       <img 
                         src={currentQuizMovie.posterUrl} 
-                        className="w-full h-full object-cover select-none pointer-events-none" 
-                        style={{ filter: 'brightness(0) contrast(0)' }} 
+                        className="w-full h-full object-cover select-none pointer-events-none transition-all duration-700" 
+                        style={{ filter: `brightness(${hintLevel * 0.1}) contrast(${hintLevel > 0 ? 0.8 : 0})` }} 
                         alt="Silhouette"
                       />
                       <div className="absolute inset-0 bg-indigo-600/5 mix-blend-multiply" />
@@ -435,7 +456,7 @@ export const ChallengeGame: React.FC = () => {
                   <button 
                     onClick={handleSkip}
                     disabled={!isMyTurn}
-                    className="w-full py-4 border-2 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    className={`w-full py-4 border-2 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-black uppercase text-xs tracking-widest rounded-2xl transition ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                   >
                     Skip this Movie
                   </button>
@@ -456,7 +477,7 @@ export const ChallengeGame: React.FC = () => {
                       <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Secondary Hint: Genres</h3>
-                            {hintLevel < 1 && (
+                            {hintLevel < 1 && isMyTurn && (
                                 <button onClick={() => setHintLevel(1)} className="text-[9px] font-black uppercase tracking-widest text-indigo-500 hover:underline">Unlock (+ Hint)</button>
                             )}
                           </div>
@@ -474,7 +495,7 @@ export const ChallengeGame: React.FC = () => {
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">Final Hint: Plot</h3>
-                            {hintLevel < 2 && (
+                            {hintLevel < 2 && isMyTurn && (
                                 <button onClick={() => setHintLevel(2)} className="text-[9px] font-black uppercase tracking-widest text-indigo-500 hover:underline">Unlock Plot (+ Hint)</button>
                             )}
                           </div>
@@ -494,12 +515,12 @@ export const ChallengeGame: React.FC = () => {
                         type="text" 
                         value={guessQuery}
                         onChange={(e) => setGuessQuery(e.target.value)}
-                        placeholder="Type movie title..."
+                        placeholder={isMyTurn ? "Type movie title..." : "Waiting for opponent..."}
                         disabled={!isMyTurn}
-                        className="w-full p-6 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/40 rounded-3xl text-xl font-bold outline-none focus:border-indigo-500 shadow-xl transition-all dark:text-white"
+                        className={`w-full p-6 bg-white dark:bg-slate-900 border-2 rounded-3xl text-xl font-bold outline-none shadow-xl transition-all dark:text-white ${showWrongShake ? 'border-red-500' : 'border-indigo-100 dark:border-indigo-900/40 focus:border-indigo-500'} ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : ''}`}
                       />
                       
-                      {searchResults.length > 0 && (
+                      {searchResults.length > 0 && isMyTurn && (
                           <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-800 rounded-[2rem] shadow-2xl border border-slate-200 dark:border-slate-700 mt-4 overflow-hidden z-50 animate-in slide-in-from-top-2">
                               {searchResults.map(movie => (
                                   <button 
@@ -523,14 +544,14 @@ export const ChallengeGame: React.FC = () => {
 
       {/* BRACKET UI */}
       {localChallenge.type === 'BRACKET' && bracketState && (
-          <div className="space-y-12">
+          <div className={`space-y-12 transition-opacity duration-300 ${!isMyTurn ? 'opacity-80' : ''}`}>
             <div className="text-center">
                 <span className="px-6 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-black uppercase tracking-widest border border-indigo-100 dark:border-indigo-900/20">
                     Round {bracketState.round} • Match {Math.floor(bracketState.index / 2) + 1} of {Math.floor(bracketState.items.length / 2)}
                 </span>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center relative">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start relative px-4">
                 {[bracketState.items[bracketState.index], bracketState.items[bracketState.index + 1]].map((mId, idx) => {
                     const movie = movies.find(m => m.id === mId);
                     return movie ? (
@@ -538,27 +559,29 @@ export const ChallengeGame: React.FC = () => {
                             <button 
                                 disabled={!isMyTurn} 
                                 onClick={() => handleBracketChoice(movie.id)} 
-                                className={`relative aspect-[2/3] w-64 rounded-[2.5rem] overflow-hidden border-4 transition-all duration-300 shadow-2xl ${
+                                className={`relative aspect-[2/3] w-full max-w-[280px] rounded-[2.5rem] overflow-hidden border-4 transition-all duration-300 shadow-2xl ${
                                     isMyTurn 
                                     ? 'border-transparent hover:border-indigo-500 hover:scale-105 cursor-pointer' 
-                                    : 'border-slate-100 dark:border-slate-800 opacity-80 cursor-default'
+                                    : 'border-slate-100 dark:border-slate-800 opacity-60 cursor-default'
                                 }`}
                             >
                                 <img src={movie.posterUrl} className="w-full h-full object-cover" alt="movie" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                {isMyTurn && <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />}
                             </button>
-                            <h3 className="mt-6 text-xl font-black text-slate-900 dark:text-white line-clamp-1">{movie.title}</h3>
-                            <p className="text-xs text-slate-400 uppercase font-black tracking-widest mt-1">{movie.year}</p>
+                            <div className="mt-6 text-center w-full max-w-[280px] space-y-1">
+                                <h3 className="text-xl font-black text-slate-900 dark:text-white line-clamp-1">{movie.title}</h3>
+                                <p className="text-xs text-slate-400 uppercase font-black tracking-widest">{movie.year}</p>
+                            </div>
                         </div>
                     ) : (
-                        <div key={`loading-${idx}`} className="w-64 aspect-[2/3] bg-slate-100 dark:bg-slate-800 animate-pulse rounded-[2.5rem] flex items-center justify-center mx-auto">
+                        <div key={`loading-${idx}`} className="w-full max-w-[280px] aspect-[2/3] bg-slate-100 dark:bg-slate-800 animate-pulse rounded-[2.5rem] flex items-center justify-center mx-auto">
                             <span className="text-[10px] font-black uppercase text-slate-400">Loading...</span>
                         </div>
                     );
                 })}
                 
-                {/* VS Badge positioned correctly to not overlap labels */}
-                <div className="hidden md:flex absolute left-1/2 top-[10rem] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-2xl border-4 border-white z-10">VS</div>
+                {/* VS Badge positioned correctly: Relative to the poster midpoint, fixed offset from top */}
+                <div className="hidden md:flex absolute left-1/2 top-[120px] -translate-x-1/2 w-16 h-16 bg-slate-900 text-white rounded-full items-center justify-center font-black text-xl shadow-[0_0_20px_rgba(99,102,241,0.4)] border-4 border-white z-10 pointer-events-none animate-pulse">VS</div>
             </div>
           </div>
       )}
