@@ -29,26 +29,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   
   initialize: async () => {
     set({ isLoading: true });
-    const storedUser = await storage.getItem<User>('auth_user_data');
-    if (storedUser) {
-      // PROACTIVE SYNC: Verify user still exists in DB (for multi-device sync)
+    const cachedUser = await storage.getItem<User>('auth_user_data');
+    
+    if (cachedUser) {
+      // Set the cached user immediately for perceived speed
+      set({ user: cachedUser });
+      
+      // PROACTIVE SYNC: Force a refresh of the user profile from the cloud
       try {
-        const users = await cloudClient.get(`/users`, { userId: storedUser.id }) as User[];
-        const user = users && users.length > 0 ? users[0] : null;
-        if (user) {
-          set({ user });
-          useMovieStore.getState().fetchData(user.id);
-          useSocialStore.getState().fetchSocial(user.id);
+        const users = await cloudClient.get(`/users`, { userId: cachedUser.id }) as User[];
+        const freshUser = users && users.length > 0 ? users[0] : null;
+        
+        if (freshUser) {
+          // Compare and update if changed
+          if (JSON.stringify(freshUser) !== JSON.stringify(cachedUser)) {
+            await storage.setItem('auth_user_data', freshUser);
+            set({ user: freshUser });
+          }
+          
+          // Trigger data syncs
+          useMovieStore.getState().fetchData(freshUser.id, true);
+          useSocialStore.getState().fetchSocial(freshUser.id, true);
         } else {
-          // If profile vanished, logout
+          // If profile vanished from server, clear local
           await storage.removeItem('auth_user_data');
           set({ user: null });
         }
       } catch (err) {
-        // If offline or error, stick with cached user for now
-        set({ user: storedUser });
-        useMovieStore.getState().fetchData(storedUser.id);
-        useSocialStore.getState().fetchSocial(storedUser.id);
+        // Offline or error: stick with cached and attempt silent data sync
+        useMovieStore.getState().fetchData(cachedUser.id, true);
+        useSocialStore.getState().fetchSocial(cachedUser.id, true);
       }
     }
     set({ isLoading: false });
@@ -77,7 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           await storage.setItem('auth_user_data', user);
           set({ user });
           useMovieStore.getState().fetchData(user.id, true);
-          useSocialStore.getState().fetchSocial(user.id);
+          useSocialStore.getState().fetchSocial(user.id, true);
           return true;
         }
         return false;

@@ -36,8 +36,9 @@ export const useSocialStore = create<SocialState>((set, get) => ({
   requestingIds: new Set(),
 
   fetchSocial: async (userId: string, isSilent: boolean = false) => {
-    // Only set global loading if it's the first fetch or forced
-    if (!isSilent) set({ isLoading: true });
+    const currentState = get();
+    // Only set global loading if it's the first fetch or explicitly forced
+    if (!isSilent && currentState.allUsers.length === 0) set({ isLoading: true });
     
     try {
       const [friendIds, allUsers, activityFeed, pendingIds, outgoingIds, challenges] = await Promise.all([
@@ -68,14 +69,19 @@ export const useSocialStore = create<SocialState>((set, get) => ({
       const nextChallenges = Array.isArray(challenges) ? challenges : [];
       const nextActivity = Array.isArray(activityFeed) ? activityFeed : [];
 
-      // SMART SYNC: Only update state if data has actually changed.
-      // This is the CRITICAL fix for the "jump to top" issue.
-      const state = get();
-      const hasChallengesChanged = JSON.stringify(state.challenges) !== JSON.stringify(nextChallenges);
-      const hasRequestsChanged = state.pendingRequests.length !== pendingRequests.length;
-      const hasActivityChanged = state.activityFeed.length !== nextActivity.length;
+      // ATOMIC SYNC: Compare stringified versions for deep-equality check
+      const challengesStr = JSON.stringify(nextChallenges);
+      const activityStr = JSON.stringify(nextActivity);
+      const friendsStr = JSON.stringify(friends);
+      const pendingStr = JSON.stringify(pendingRequests);
 
-      if (hasChallengesChanged || hasRequestsChanged || hasActivityChanged || !isSilent) {
+      const hasChanged = 
+        challengesStr !== JSON.stringify(currentState.challenges) ||
+        activityStr !== JSON.stringify(currentState.activityFeed) ||
+        friendsStr !== JSON.stringify(currentState.friends) ||
+        pendingStr !== JSON.stringify(currentState.pendingRequests);
+
+      if (hasChanged || !isSilent) {
         set({ 
           friends, 
           allUsers: usersList, 
@@ -86,8 +92,7 @@ export const useSocialStore = create<SocialState>((set, get) => ({
           isLoading: false 
         });
       } else {
-        // Just clear the loading state if we were showing a spinner
-        if (state.isLoading) set({ isLoading: false });
+        if (currentState.isLoading) set({ isLoading: false });
       }
     } catch (err) {
       set({ isLoading: false });

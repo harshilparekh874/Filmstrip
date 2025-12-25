@@ -34,7 +34,7 @@ export const Social: React.FC = () => {
     }
   }, [currentUser, fetchSocial, fetchMovies]);
 
-  // LIVE POLLING: High frequency silent polling
+  // LIVE POLLING: High frequency silent polling for cross-device sync
   useEffect(() => {
     if (!currentUser?.id) return;
     const interval = setInterval(() => {
@@ -43,14 +43,18 @@ export const Social: React.FC = () => {
     return () => clearInterval(interval);
   }, [currentUser?.id, fetchSocial]);
 
+  // Modified Discovery Logic: Only show results if there is a query
   const filteredDiscovery = useMemo(() => {
-    if (!allUsers) return [];
+    if (!allUsers || userQuery.trim().length === 0) return [];
+    
+    const query = userQuery.toLowerCase();
     return allUsers.filter(u => 
       u?.id !== currentUser?.id && 
       !friends?.some(f => f.id === u.id) &&
-      (userQuery === '' || 
-       u?.name?.toLowerCase().includes(userQuery.toLowerCase()) || 
-       u?.username?.toLowerCase().includes(userQuery.toLowerCase()))
+      (u?.name?.toLowerCase().includes(query) || 
+       u?.username?.toLowerCase().includes(query) ||
+       u?.firstName?.toLowerCase().includes(query) ||
+       u?.lastName?.toLowerCase().includes(query))
     );
   }, [allUsers, currentUser, friends, userQuery]);
 
@@ -79,6 +83,7 @@ export const Social: React.FC = () => {
     }
   };
 
+  // Only show a full screen loader if we have NO data at all
   if (isLoading && activityFeed.length === 0) return (
     <div className="flex h-64 items-center justify-center">
       <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
@@ -92,7 +97,7 @@ export const Social: React.FC = () => {
         <div className="relative">
           <input
             type="text"
-            placeholder="Search for people to follow..."
+            placeholder="Search by name or @username..."
             value={userQuery}
             onChange={(e) => setUserQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-slate-100 outline-none transition"
@@ -187,7 +192,7 @@ export const Social: React.FC = () => {
         </section>
       )}
 
-      {/* Discovery Section */}
+      {/* Discovery Section - Now Empty by default */}
       <section className="bg-slate-100 dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 transition-colors">
         <h2 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-6 ml-1">Community Discovery</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -220,7 +225,11 @@ export const Social: React.FC = () => {
               );
             })
           ) : (
-            <p className="text-slate-400 text-sm italic col-span-2 text-center py-4">Searching for new connections...</p>
+            <div className="col-span-2 py-10 text-center">
+               <p className="text-slate-400 text-sm italic">
+                 {userQuery.trim().length === 0 ? "Search for friends to grow your community." : "No users found matching your search."}
+               </p>
+            </div>
           )}
         </div>
       </section>
