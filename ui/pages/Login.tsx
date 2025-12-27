@@ -3,9 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/authStore';
 import { tmdbApi } from '../../data/api/tmdbApi';
-import { Movie } from '../../core/types/models';
+import { Movie, User } from '../../core/types/models';
 
-type Step = 'EMAIL' | 'VERIFY' | 'PROFILE' | 'AVATAR' | 'PREFERENCES';
+type Step = 'ACCOUNTS' | 'EMAIL' | 'VERIFY' | 'PROFILE' | 'AVATAR' | 'PREFERENCES';
 
 const PRESET_AVATARS = [
   'Felix', 'Aneka', 'Casper', 'Willow', 'Jasper', 'Milo', 'Luna', 'Cleo'
@@ -18,7 +18,7 @@ const GENRES = [
 const IS_PROD = !!(import.meta as any).env?.VITE_SUPABASE_URL;
 
 export const Login: React.FC = () => {
-  const { signup, login, sendOtp, verifyOtp } = useAuthStore();
+  const { signup, login, sendOtp, verifyOtp, rememberedUsers, forgetAccount } = useAuthStore();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>('EMAIL');
@@ -40,11 +40,31 @@ export const Login: React.FC = () => {
   const [movieResults, setMovieResults] = useState<Movie[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
 
+  // Check for remembered accounts on mount
+  useEffect(() => {
+    if (rememberedUsers.length > 0) {
+      setStep('ACCOUNTS');
+    }
+  }, [rememberedUsers]);
+
   useEffect(() => {
     if (movieSearch.length > 2) {
       tmdbApi.searchMovies(movieSearch).then(res => setMovieResults(res.slice(0, 5)));
     }
   }, [movieSearch]);
+
+  const handleQuickLogin = async (userId: string) => {
+    setError('');
+    setIsSubmitting(true);
+    const success = await login(userId);
+    if (success) {
+      navigate('/dashboard');
+    } else {
+      setError("Session expired. Please log in with your email.");
+      setStep('EMAIL');
+    }
+    setIsSubmitting(false);
+  };
 
   const handleEmailSubmit = async () => {
     setError('');
@@ -67,7 +87,6 @@ export const Login: React.FC = () => {
       if (res.isNewUser) {
         setStep('PROFILE');
       } else {
-        // Attempt login. If profile record is missing, go to signup flow.
         const success = await login(res.userId!);
         if (success) {
             navigate('/dashboard');
@@ -104,7 +123,7 @@ export const Login: React.FC = () => {
         <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800">
           <div 
             className="h-full bg-indigo-600 transition-all duration-500"
-            style={{ width: `${(['EMAIL', 'VERIFY', 'PROFILE', 'AVATAR', 'PREFERENCES'].indexOf(step) + 1) * 20}%` }}
+            style={{ width: `${(['ACCOUNTS', 'EMAIL', 'VERIFY', 'PROFILE', 'AVATAR', 'PREFERENCES'].indexOf(step) + 1) * 16.6}%` }}
           />
         </div>
 
@@ -115,17 +134,55 @@ export const Login: React.FC = () => {
             </div>
           )}
 
+          {step === 'ACCOUNTS' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+              <div className="text-center">
+                <h1 className="text-4xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter mb-2">Welcome Back</h1>
+                <p className="text-slate-500 dark:text-slate-400 text-sm">Select an account to log in instantly.</p>
+              </div>
+              
+              <div className="space-y-3">
+                {rememberedUsers.map(u => (
+                  <div key={u.id} className="relative group">
+                    <button 
+                      onClick={() => handleQuickLogin(u.id)}
+                      disabled={isSubmitting}
+                      className="w-full p-4 flex items-center gap-4 bg-slate-50 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border-2 border-transparent hover:border-indigo-500 rounded-3xl transition-all"
+                    >
+                      <img src={u.avatarUrl} className="w-12 h-12 rounded-full border-2 border-white dark:border-slate-700 shadow-sm object-cover" alt="" />
+                      <div className="text-left flex-1 overflow-hidden">
+                        <p className="font-black text-slate-900 dark:text-slate-100 truncate">{u.name}</p>
+                        <p className="text-xs text-slate-500 font-medium">@{u.username}</p>
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Login →</span>
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); forgetAccount(u.id); }}
+                      className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-400 transition"
+                      title="Forget this account"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-4 space-y-3">
+                <button 
+                  onClick={() => setStep('EMAIL')}
+                  className="w-full py-4 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-indigo-700 transition"
+                >
+                  Use another account
+                </button>
+              </div>
+            </div>
+          )}
+
           {step === 'EMAIL' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
               <div className="text-center">
-                <div className="mb-4 inline-flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-full">
-                  <div className={`w-2 h-2 rounded-full ${IS_PROD ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`} />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    {IS_PROD ? 'Live Production Server' : 'Simulation Mode'}
-                  </span>
-                </div>
                 <h1 className="text-4xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter mb-2">Filmstrip</h1>
-                <p className="text-slate-500 dark:text-slate-400 text-sm">Track your cinema journey globally.</p>
+                <p className="text-slate-500 dark:text-slate-400 text-sm">Log in with your email to sync your cinema journey.</p>
               </div>
               <div className="space-y-4">
                 <input 
@@ -142,6 +199,14 @@ export const Login: React.FC = () => {
                 >
                   {isSubmitting ? 'Connecting...' : 'Send Verification Code'}
                 </button>
+                {rememberedUsers.length > 0 && (
+                   <button 
+                    onClick={() => setStep('ACCOUNTS')}
+                    className="w-full py-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-indigo-600 transition"
+                  >
+                    ← Back to known accounts
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -157,7 +222,7 @@ export const Login: React.FC = () => {
               </div>
               <input 
                 type="text" 
-                placeholder="••••••••"
+                placeholder="••••"
                 maxLength={10}
                 value={formData.code}
                 onChange={e => setFormData({...formData, code: e.target.value})}
@@ -165,7 +230,7 @@ export const Login: React.FC = () => {
               />
               <button 
                 onClick={handleVerifySubmit} 
-                disabled={formData.code.length < 5 || isSubmitting}
+                disabled={formData.code.length < 4 || isSubmitting}
                 className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl transition-transform active:scale-95"
               >
                 {isSubmitting ? 'Verifying...' : 'Verify & Continue'}

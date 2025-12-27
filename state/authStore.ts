@@ -8,6 +8,7 @@ import { useSocialStore } from './socialStore';
 
 interface AuthState {
   user: User | null;
+  rememberedUsers: User[];
   isLoading: boolean;
   emailContext: string | null;
   userIdContext: string | null;
@@ -19,23 +20,30 @@ interface AuthState {
   signup: (userData: any) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   logout: () => Promise<void>;
+  forgetAccount: (userId: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
+  rememberedUsers: [],
   isLoading: true,
   emailContext: null,
   userIdContext: null,
   
   initialize: async () => {
     set({ isLoading: true });
+    
+    // 1. Load the list of "Remembered" accounts for this device
+    const remembered = await storage.getItem<User[]>('remembered_accounts') || [];
+    set({ rememberedUsers: remembered });
+
+    // 2. Check for an active session
     const cachedUser = await storage.getItem<User>('auth_user_data');
     
     if (cachedUser) {
-      // Set the cached user immediately for perceived speed
       set({ user: cachedUser });
       
-      // CRITICAL SYNC: Proactively fetch fresh user data from "cloud"
+      // CRITICAL SYNC: Proactively fetch fresh user data and lists from "cloud"
       try {
         const users = await cloudClient.get(`/users`, { userId: cachedUser.id }) as User[];
         const freshUser = (Array.isArray(users) && users.length > 0) ? users[0] : null;
@@ -44,14 +52,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           await storage.setItem('auth_user_data', freshUser);
           set({ user: freshUser });
           
-          // Force immediate data fetch for this user to restore watched list and social
+          // Force immediate high-priority data fetch to restore watched list and social state
           await Promise.all([
             useMovieStore.getState().fetchData(freshUser.id, true),
             useSocialStore.getState().fetchSocial(freshUser.id, true)
           ]);
         }
       } catch (err) {
-        // Fail gracefully to cache if offline
+        // Fail gracefully to cache if offline, but still try to sync data
         useMovieStore.getState().fetchData(cachedUser.id, true);
         useSocialStore.getState().fetchSocial(cachedUser.id, true);
       }
@@ -79,9 +87,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const users = await cloudClient.get(`/users`, { userId }) as User[];
         const user = users && users.length > 0 ? users[0] : null;
         if (user) {
+          // 1. Save active session
           await storage.setItem('auth_user_data', user);
-          set({ user });
-          // Hard sync on login
+          
+          // 2. Update remembered list (Device Trust)
+          const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
+          const filtered = currentRemembered.filter(u => u.id !== user.id);
+          const updatedRemembered = [user, ...filtered].slice(0, 5); // Keep last 5
+          await storage.setItem('remembered_accounts', updatedRemembered);
+          
+          set({ user, rememberedUsers: updatedRemembered });
+
+          // 3. Hard sync all data immediately
           await Promise.all([
             useMovieStore.getState().fetchData(user.id, true),
             useSocialStore.getState().fetchSocial(user.id, true)
@@ -107,11 +124,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         createdAt: Date.now()
     };
 
-    const results = await cloudClient.post('/auth/signup', finalData) as User;
-    const user = results;
+    const user = await cloudClient.post('/auth/signup', finalData) as User;
     
+    // Save active session and add to remembered list
     await storage.setItem('auth_user_data', user);
-    set({ user });
+    const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
+    const updatedRemembered = [user, ...currentRemembered.filter(u => u.id !== user.id)].slice(0, 5);
+    await storage.setItem('remembered_accounts', updatedRemembered);
+
+    set({ user, rememberedUsers: updatedRemembered });
   },
 
   updateUser: async (updates: Partial<User>) => {
@@ -120,12 +141,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     
     const updatedUser = await cloudClient.put(`/users/${currentUser.id}`, updates) as User;
     await storage.setItem('auth_user_data', updatedUser);
-    set({ user: updatedUser });
+    
+    // Also update in remembered list
+    const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
+    const updatedRemembered = currentRemembered.map(u => u.id === updatedUser.id ? updatedUser : u);
+    await storage.setItem('remembered_accounts', updatedRemembered);
+
+    set({ user: updatedUser, rememberedUsers: updatedRemembered });
   },
 
   logout: async () => {
     await storage.removeItem('auth_user_data');
     localStorage.removeItem('supabase.auth.token');
     set({ user: null, emailContext: null, userIdContext: null });
+  },
+
+  forgetAccount: async (userId: string) => {
+    const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
+    const updated = currentRemembered.filter(u => u.id !== userId);
+    await storage.setItem('remembered_accounts', updated);
+    set({ rememberedUsers: updated });
   }
 }));
