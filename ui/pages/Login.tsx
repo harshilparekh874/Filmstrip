@@ -12,7 +12,7 @@ const PRESET_AVATARS = [
 ].map(seed => `https://api.dicebear.com/7.x/adventurer/svg?seed=${seed}`);
 
 const GENRES = [
-  'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation', 'Fantasy'
+  'Hindi Language', 'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation', 'Fantasy'
 ];
 
 const IS_PROD = !!(import.meta as any).env?.VITE_SUPABASE_URL;

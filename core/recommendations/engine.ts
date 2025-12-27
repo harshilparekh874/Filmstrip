@@ -6,7 +6,8 @@ export const getRecommendations = (
   allMovies: Movie[],
   userEntries: UserMovieEntry[],
   friendEntries: UserMovieEntry[],
-  currentUserId: string
+  currentUserId: string,
+  user?: User
 ): Recommendation[] => {
   const recommendations: Recommendation[] = [];
   const seenMovieIds = new Set(userEntries.map(e => e.movieId));
@@ -16,6 +17,9 @@ export const getRecommendations = (
   watchedMovies.flatMap(m => m.genres).forEach(g => {
     genreWeights[g] = (genreWeights[g] || 0) + 1;
   });
+
+  // Check if user has a language preference
+  const prefersHindi = user?.favoriteGenres?.includes('Hindi Language');
 
   allMovies.forEach(movie => {
     if (seenMovieIds.has(movie.id)) return;
@@ -38,6 +42,17 @@ export const getRecommendations = (
       reasons.push(`Matches your genre taste.`);
     }
 
+    // LANGUAGE FOCUS: If user explicitly wants Hindi movies
+    const isHindiMovie = movie.genres.includes('Hindi Language');
+    if (prefersHindi) {
+      if (isHindiMovie) {
+        score += 200; // Major boost for Hindi films
+        reasons.unshift("Personal Hindi favorite.");
+      } else {
+        score -= 50; // Slight penalty for non-Hindi if that is the main preference
+      }
+    }
+
     if (score === 0) {
         score = 1;
         reasons.push("Trending now.");
@@ -58,11 +73,20 @@ export const findSimilarByGenre = (source: Movie, pool: Movie[], count = 10): Mo
   const sourceGenres = new Set(source.genres.map(g => g.toLowerCase()));
   const threshold = source.genres.length >= 2 ? 2 : 1;
 
+  const isHindiSource = source.genres.includes('Hindi Language');
+
   return pool
     .filter(m => m.id !== source.id) 
     .map(m => {
       const matches = m.genres.filter(g => sourceGenres.has(g.toLowerCase()));
-      return { movie: m, matchCount: matches.length };
+      let matchCount = matches.length;
+      
+      // If source is Hindi, prioritize matching other Hindi films
+      if (isHindiSource && m.genres.includes('Hindi Language')) {
+        matchCount += 3;
+      }
+
+      return { movie: m, matchCount };
     })
     .filter(x => x.matchCount >= threshold) 
     .sort((a, b) => b.matchCount - a.matchCount) 
@@ -98,7 +122,6 @@ export const generateFormalGroupReasons = async (
       config: { responseMimeType: "application/json" }
     });
 
-    // Directly access .text property
     let rawText = response.text || '{}';
     if (rawText.includes('```json')) {
       rawText = rawText.split('```json')[1].split('```')[0].trim();

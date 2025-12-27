@@ -10,7 +10,7 @@ import { parseLetterboxdCSV } from '../../core/utils/csvParser';
 import { useMovieStore } from '../../state/movieStore';
 
 const GENRES = [
-  'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation',
+  'Hindi Language', 'Action', 'Comedy', 'Drama', 'Horror', 'Sci-Fi', 'Thriller', 'Romance', 'Documentary', 'Animation',
   'Adventure', 'Fantasy', 'Mystery', 'Crime', 'Western', 'Musical', 'War', 'History', 'Biography', 'Family', 'Sport', 'Indie',
   'Noir', 'Psychological', 'Superhero', 'Supernatural', 'Satire', 'Mockumentary', 'Cyberpunk', 'Post-Apocalyptic', 'Anime', 'Experimental'
 ];
@@ -118,7 +118,6 @@ export const MyProfile: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Profile Header Card */}
       <section className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-200 dark:border-slate-800 shadow-sm text-center relative overflow-hidden transition-colors">
         <div className="absolute top-0 left-0 right-0 h-24 bg-indigo-50 dark:bg-indigo-900/10" />
         <div className="relative group">
@@ -152,7 +151,6 @@ export const MyProfile: React.FC = () => {
         </div>
       </section>
 
-      {/* Migration Tools */}
       {!isEditing && (
         <section className="bg-emerald-600 dark:bg-emerald-500 p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden transition-colors">
           <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
@@ -192,9 +190,7 @@ export const MyProfile: React.FC = () => {
         </section>
       )}
 
-      {/* Settings Sections */}
       <div className="space-y-6">
-        {/* Appearance Toggle */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 flex items-center justify-between transition-colors">
           <div>
             <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">Appearance</h2>
@@ -208,7 +204,6 @@ export const MyProfile: React.FC = () => {
           </button>
         </div>
 
-        {/* Name Fields */}
         {isEditing && (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
@@ -230,7 +225,6 @@ export const MyProfile: React.FC = () => {
           </div>
         )}
 
-        {/* Favorite Genres */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 transition-colors">
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-4 ml-1">Favorite Genres</h2>
           <div className="flex flex-wrap gap-2">
@@ -255,7 +249,6 @@ export const MyProfile: React.FC = () => {
           </div>
         </div>
 
-        {/* All Time Favorite Movie */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 transition-colors">
           <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-4 ml-1">All-Time Favorite</h2>
           
@@ -314,7 +307,6 @@ export const MyProfile: React.FC = () => {
           )}
         </div>
 
-        {/* Action Buttons */}
         <div className="flex flex-col gap-3">
           {isEditing ? (
             <>
@@ -342,7 +334,6 @@ export const MyProfile: React.FC = () => {
           )}
         </div>
 
-        {/* Danger Zone */}
         <div className="pt-8 border-t border-slate-200 dark:border-slate-800">
           <button 
             onClick={handleLogout}

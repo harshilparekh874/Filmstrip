@@ -38,6 +38,11 @@ const mapToMovie = (m: any): Movie => {
       })
     : (m.genre_ids || []).map((id: number) => GENRE_MAP[id]).filter(Boolean);
 
+  // VIRTUAL GENRE INJECTION: Handle Hindi language specifically
+  if (m.original_language === 'hi' && !resolvedGenres.includes('Hindi Language')) {
+    resolvedGenres.unshift('Hindi Language');
+  }
+
   const cast: CastMember[] = m.credits?.cast?.slice(0, 10).map((c: any) => ({
     id: c.id,
     name: c.name,
@@ -98,11 +103,9 @@ export const tmdbApi = {
     const type = parts[1] === 'tv' ? 'tv' : 'movie';
     const numericId = parts[2];
     
-    // 1. Get source movie details for ranking
     const source = await tmdbApi.getMovieDetails(tmdbId);
     if (!source) return [];
 
-    // 2. Fetch from both Similar (Keywords) and Recommendations (Behavior) for a richer pool
     const [similarData, recsData] = await Promise.all([
       fetchTmdb(`/${type}/${numericId}/similar?language=en-US&page=1`),
       fetchTmdb(`/${type}/${numericId}/recommendations?language=en-US&page=1`)
@@ -118,41 +121,37 @@ export const tmdbApi = {
         })
         .map(m => mapToMovie({ ...m, media_type: type }));
 
-    // 3. Robust Weighted Ranking Algorithm
     return moviePool
       .map(target => {
         let score = 0;
-        
-        // A. Genre Match (Extreme High Weight for Animation/Family)
         const commonGenres = target.genres.filter(g => source.genres.includes(g));
         score += commonGenres.length * 15;
         
         const isAnimationSource = source.genres.includes('Animation');
         const isAnimationTarget = target.genres.includes('Animation');
-        const isFamilySource = source.genres.includes('Family');
-        const isFamilyTarget = target.genres.includes('Family');
+        const isHindiSource = source.genres.includes('Hindi Language');
+        const isHindiTarget = target.genres.includes('Hindi Language');
 
         if (isAnimationSource) {
-           if (isAnimationTarget) score += 100; // Animation MUST stay with Animation
-           else score -= 80; // Heavy penalty for matching Zootopia with live-action 1900s
+           if (isAnimationTarget) score += 100;
+           else score -= 80;
         }
 
-        if (isFamilySource && !isFamilyTarget) score -= 40;
+        // Keep Hindi language with Hindi language if it's a core preference
+        if (isHindiSource && isHindiTarget) score += 150;
 
-        // B. Era/Temporal Proximity (Aggressive Filter)
         const yearDiff = Math.abs(source.year - target.year);
-        if (yearDiff <= 3) score += 50;  // Same franchise / direct era
+        if (yearDiff <= 3) score += 50;
         else if (yearDiff <= 10) score += 30;
-        else if (yearDiff >= 30) score -= 60; // Huge penalty for modern matching vintage
-        else if (yearDiff >= 50) score -= 150; // Practically disqualifies era mismatches
+        else if (yearDiff >= 30) score -= 60;
+        else if (yearDiff >= 50) score -= 150;
 
-        // C. Modernity Bias (if source is modern)
         if (source.year > 2000 && target.year < 1980) score -= 100;
 
         return { movie: target, score };
       })
       .sort((a, b) => b.score - a.score)
-      .filter(item => item.score > -50) // Prune absolute mismatches
+      .filter(item => item.score > -50)
       .map(item => item.movie);
   }
 };

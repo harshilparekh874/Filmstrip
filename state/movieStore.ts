@@ -1,10 +1,11 @@
 
 import { create } from 'zustand';
-import { Movie, UserMovieEntry, Recommendation } from '../core/types/models';
+import { Movie, UserMovieEntry, Recommendation, User } from '../core/types/models';
 import { movieRepo } from '../data/repositories/movieRepo';
 import { getRecommendations, findSimilarByGenre } from '../core/recommendations/engine';
 import { tmdbApi } from '../data/api/tmdbApi';
 import { LetterboxdMovie } from '../core/utils/csvParser';
+import { useAuthStore } from './authStore';
 
 export interface GroupedRecommendation {
   sourceMovie: Movie;
@@ -52,7 +53,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
   fetchData: async (userId: string, isSilent: boolean = false) => {
     const currentState = get();
-    // Only show global loader if we have no data at all
+    const currentUser = useAuthStore.getState().user;
     if (!isSilent && currentState.userEntries.length === 0) set({ isLoading: true });
     
     try {
@@ -64,7 +65,6 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
       const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       
-      // ATOMIC CHECK: If entry length and most recent timestamp are identical, skip re-render
       const hasChanged = currentState.userEntries.length !== sortedUserEntries.length || 
                         (sortedUserEntries.length > 0 && currentState.userEntries[0]?.timestamp !== sortedUserEntries[0]?.timestamp);
 
@@ -86,7 +86,6 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, 3);
 
-      // Optimization: Only fetch similar if entries changed
       if (hasChanged || !isSilent) {
         const similarBatches = await Promise.all(lastThree.map(e => tmdbApi.getSimilarMovies(e.movieId)));
         similarBatches.flat().forEach(m => {
@@ -106,7 +105,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         movies: pool, 
         userEntries: sortedUserEntries, 
         friendEntries, 
-        recommendations: getRecommendations(pool, sortedUserEntries, friendEntries, userId),
+        recommendations: getRecommendations(pool, sortedUserEntries, friendEntries, userId, currentUser || undefined),
         groupedRecommendations: grouped,
         isLoading: false 
       });
@@ -128,6 +127,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
   updateEntry: async (entry: UserMovieEntry) => {
     const state = get();
+    const currentUser = useAuthStore.getState().user;
     const updatedEntry = { ...entry, timestamp: entry.timestamp || Date.now() };
     
     let targetMovie = state.movies.find(m => m.id === updatedEntry.movieId) 
@@ -166,7 +166,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
       userEntries: newEntries, 
       movies: updatedPool,
       groupedRecommendations: newGrouped,
-      recommendations: getRecommendations(updatedPool, newEntries, state.friendEntries, updatedEntry.userId)
+      recommendations: getRecommendations(updatedPool, newEntries, state.friendEntries, updatedEntry.userId, currentUser || undefined)
     });
 
     movieRepo.updateEntry(updatedEntry);
