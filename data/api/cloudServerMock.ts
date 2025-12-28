@@ -2,7 +2,7 @@
 import { User, ActivityEvent, Friendship, UserMovieEntry, SocialChallenge } from '../../core/types/models';
 
 /**
- * CLOUD SERVER SIMULATOR (v3.3 - Fixed Identity Assignment & Username Collision)
+ * CLOUD SERVER SIMULATOR (v3.4 - ISO Date Format Refactor)
  */
 
 const CLOUD_DB_KEY = 'reel_reason_global_cloud_db';
@@ -78,15 +78,11 @@ export const cloudServerMock = {
       delete db.pendingOtps[data.email];
       saveDb(db);
       const user = db.users.find(u => u.email === data.email);
-      
-      // FIXED: Generate a fresh ID for new users immediately so it's ready for the Profile step
       const userId = user ? user.id : 'u_' + Math.random().toString(36).substr(2, 9);
-      
       return { success: true, isNewUser: !user, userId: userId };
     }
 
     if (url === '/auth/signup' && method === 'POST') {
-      // FIXED: Actually check if username exists
       const isTaken = db.users.some(u => u.username?.toLowerCase() === data.username?.toLowerCase());
       if (isTaken) {
         throw new Error("This username is already taken. Please try another.");
@@ -96,7 +92,7 @@ export const cloudServerMock = {
         ...data,
         id: data.id || 'u_' + Math.random().toString(36).substr(2, 9),
         isVerified: true,
-        createdAt: Date.now(),
+        createdAt: data.createdAt || new Date().toISOString(),
         token: 'fake_jwt_' + Math.random().toString(36)
       };
       db.users.push(newUser);
@@ -133,9 +129,9 @@ export const cloudServerMock = {
     if (url === '/entries' && method === 'POST') {
       const idx = db.entries.findIndex(e => e.userId === data.userId && e.movieId === data.movieId);
       if (idx > -1) {
-        db.entries[idx] = { ...data, timestamp: data.timestamp || Date.now() };
+        db.entries[idx] = { ...data, timestamp: data.timestamp || new Date().toISOString() };
       } else {
-        db.entries.push({ ...data, timestamp: data.timestamp || Date.now() });
+        db.entries.push({ ...data, timestamp: data.timestamp || new Date().toISOString() });
       }
       
       db.activity.unshift({
@@ -144,7 +140,7 @@ export const cloudServerMock = {
         movieId: data.movieId,
         type: data.status,
         metadata: { rating: data.rating, droppedReason: data.droppedReason },
-        timestamp: Date.now()
+        timestamp: new Date().toISOString()
       });
       saveDb(db);
       return { success: true };
@@ -161,7 +157,7 @@ export const cloudServerMock = {
         id: 'ch_' + Math.random().toString(36).substr(2, 9),
         turnUserId: data.turnUserId || data.creatorId,
         status: data.status || 'PENDING',
-        timestamp: Date.now()
+        timestamp: new Date().toISOString()
       };
       db.challenges.push(newChallenge);
       saveDb(db);
@@ -187,7 +183,7 @@ export const cloudServerMock = {
                 userId: db.challenges[idx].recipientId,
                 type: 'CHALLENGE_COMPLETED',
                 metadata: { challengeType: db.challenges[idx].type, challengeId: id },
-                timestamp: Date.now()
+                timestamp: new Date().toISOString()
             });
             logToSystem('GAME', `Challenge ${id} finalized!`);
           }
@@ -244,7 +240,7 @@ export const cloudServerMock = {
           userId: userId,
           type: 'FRIEND_ADDED',
           metadata: { friendId: senderId },
-          timestamp: Date.now()
+          timestamp: new Date().toISOString()
         });
         saveDb(db);
       }

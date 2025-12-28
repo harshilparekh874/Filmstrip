@@ -2,7 +2,7 @@
 # Filmstrip - Production Setup
 
 ### 1. Database (Supabase)
-Run this SQL in your **SQL Editor** to create all tables. This schema uses `bigint` for timestamps to ensure compatibility with JavaScript's `Date.now()` format:
+Run this SQL in your **SQL Editor** to create all tables. This schema uses `timestamptz` for dates, which is the recommended format for global applications:
 
 ```sql
 -- 1. Users Table (Profile data linked to Auth)
@@ -16,7 +16,7 @@ create table if not exists public.users (
   "avatarUrl" text, 
   "favoriteGenres" text[], 
   "favoriteMovieId" text,
-  "createdAt" bigint not null -- FIXED: Using bigint for Date.now() compatibility
+  "createdAt" timestamptz default now() -- FIXED: Native Date type
 );
 
 -- 2. Movie Entries (Watched, Watchlist, Dropped)
@@ -28,7 +28,7 @@ create table if not exists public.entries (
   rating int, 
   "droppedReason" text, 
   notes text, 
-  timestamp bigint
+  timestamp timestamptz default now()
 );
 
 -- 3. Friendships
@@ -47,7 +47,7 @@ create table if not exists public.activity (
   type text, 
   "movieId" text, 
   metadata jsonb, 
-  timestamp bigint
+  timestamp timestamptz default now()
 );
 
 -- 5. Social Challenges (Battles)
@@ -62,7 +62,7 @@ create table if not exists public.challenges (
   "movieIds" text[], 
   results jsonb, 
   config jsonb,
-  timestamp bigint
+  timestamp timestamptz default now()
 );
 
 -- Disable RLS for MVP (Enable later for production security)
@@ -74,7 +74,7 @@ alter table public.challenges disable row level security;
 ```
 
 ### 2. Refresh Cache
-Settings > **Data API** > Scroll to bottom > **Reload Schema** to apply the bigint changes.
+Settings > **Data API** > Scroll to bottom > **Reload Schema** to apply the date type changes.
 
 ### 3. Vercel Env Vars
 - `VITE_SUPABASE_URL`
