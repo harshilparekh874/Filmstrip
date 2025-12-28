@@ -2,7 +2,7 @@
 import { User, ActivityEvent, Friendship, UserMovieEntry, SocialChallenge } from '../../core/types/models';
 
 /**
- * CLOUD SERVER SIMULATOR (v3.2 - Multiplayer, Data Integrity & Challenge Deletion)
+ * CLOUD SERVER SIMULATOR (v3.3 - Fixed Identity Assignment & Username Collision)
  */
 
 const CLOUD_DB_KEY = 'reel_reason_global_cloud_db';
@@ -78,24 +78,38 @@ export const cloudServerMock = {
       delete db.pendingOtps[data.email];
       saveDb(db);
       const user = db.users.find(u => u.email === data.email);
-      return { success: true, isNewUser: !user, userId: user?.id };
+      
+      // FIXED: Generate a fresh ID for new users immediately so it's ready for the Profile step
+      const userId = user ? user.id : 'u_' + Math.random().toString(36).substr(2, 9);
+      
+      return { success: true, isNewUser: !user, userId: userId };
     }
 
     if (url === '/auth/signup' && method === 'POST') {
+      // FIXED: Actually check if username exists
+      const isTaken = db.users.some(u => u.username?.toLowerCase() === data.username?.toLowerCase());
+      if (isTaken) {
+        throw new Error("This username is already taken. Please try another.");
+      }
+
       const newUser: User = {
         ...data,
-        id: 'u_' + Math.random().toString(36).substr(2, 9),
+        id: data.id || 'u_' + Math.random().toString(36).substr(2, 9),
         isVerified: true,
         createdAt: Date.now(),
         token: 'fake_jwt_' + Math.random().toString(36)
       };
       db.users.push(newUser);
       saveDb(db);
+      logToSystem('AUTH', `New user registered: ${newUser.username}`);
       return newUser;
     }
 
     // USER ROUTES
-    if (url === '/users' && method === 'GET') return db.users;
+    if (url === '/users' && method === 'GET') {
+      if (data?.userId) return db.users.filter(u => u.id === data.userId);
+      return db.users;
+    }
     
     if (url.startsWith('/users/') && method === 'GET') {
       const id = url.split('/').pop();

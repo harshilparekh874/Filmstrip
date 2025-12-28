@@ -102,6 +102,7 @@ export const Login: React.FC = () => {
   };
 
   const handleComplete = async () => {
+    setError('');
     setIsSubmitting(true);
     try {
       await signup({
@@ -109,8 +110,9 @@ export const Login: React.FC = () => {
         favoriteMovieId: selectedMovie?.id
       });
       navigate('/dashboard');
-    } catch (err) {
-      setError('Signup failed. Username might be taken.');
+    } catch (err: any) {
+      // FIXED: Show actual error message from server instead of generic "taken" message
+      setError(err.message || 'Account creation failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -118,7 +120,7 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0f1115] px-4 py-10">
-      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800">
+      <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 transition-colors">
         
         <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800">
           <div 
@@ -284,8 +286,8 @@ export const Login: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <button onClick={handleComplete} disabled={isSubmitting} className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl">
-                {isSubmitting ? 'Launching...' : 'Create My Account'}
+              <button onClick={handleComplete} disabled={isSubmitting} className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50">
+                {isSubmitting ? 'Finalizing...' : 'Create My Account'}
               </button>
             </div>
           )}
