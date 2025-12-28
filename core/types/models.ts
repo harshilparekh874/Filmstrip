@@ -13,7 +13,7 @@ export interface User {
   favoriteMovieId?: string;
   isVerified: boolean;
   token?: string;
-  createdAt: string; // ISO String
+  createdAt: number;
 }
 
 export interface CastMember {
@@ -41,10 +41,10 @@ export interface UserMovieEntry {
   status: WatchStatus;
   rating?: number;
   droppedReason?: string;
-  droppedAtTimestamp?: string; // ISO String
-  watchedAtTimestamp?: string; // ISO String
+  droppedAtTimestamp?: number;
+  watchedAtTimestamp?: number;
   notes?: string;
-  timestamp?: string; // ISO String
+  timestamp?: number;
 }
 
 export interface Friendship {
@@ -69,7 +69,7 @@ export interface SocialChallenge {
   config?: {
     timeLimitMins?: number;
   };
-  timestamp: string; // ISO String
+  timestamp: number;
 }
 
 export type ActivityEventType = 'WATCHED' | 'DROPPED' | 'WATCH_LATER' | 'RATED' | 'FRIEND_ADDED' | 'CHALLENGE_COMPLETED';
@@ -86,7 +86,7 @@ export interface ActivityEvent {
     challengeType?: ChallengeType;
     challengeId?: string;
   };
-  timestamp: string; // ISO String
+  timestamp: number;
 }
 
 export interface Recommendation {

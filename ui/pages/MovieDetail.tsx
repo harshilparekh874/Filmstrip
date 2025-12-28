@@ -95,7 +95,6 @@ export const MovieDetail: React.FC = () => {
   const handleSave = async () => {
     if (!user || !status) return;
     setIsSaving(true);
-    // Fix: timestamp must be an ISO string to match UserMovieEntry interface definitions.
     await updateEntry({
       userId: user.id,
       movieId: movie.id,
@@ -103,7 +102,7 @@ export const MovieDetail: React.FC = () => {
       rating: status === 'WATCHED' ? rating : undefined,
       droppedReason: status === 'DROPPED' ? droppedReason : undefined,
       notes: notes,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     } as any);
     setIsSaving(false);
   };

@@ -63,15 +63,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   sendOtp: async (email: string) => {
-    try {
-      await cloudClient.post('/auth/otp', { email });
-      set({ emailContext: email });
-    } catch (err: any) {
-      if (err.message?.includes('429')) {
-        throw new Error("Too many requests. Please wait a minute before trying again.");
-      }
-      throw err;
-    }
+    await cloudClient.post('/auth/otp', { email });
+    set({ emailContext: email });
   },
 
   verifyOtp: async (code: string) => {
@@ -125,7 +118,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         id: userId,
         email: email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
-        createdAt: new Date().toISOString() // FIXED: ISO String for Postgres compatibility
+        createdAt: Date.now() // Matches updated bigint schema
     };
 
     const user = await cloudClient.post('/auth/signup', finalData) as User;

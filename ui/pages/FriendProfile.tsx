@@ -117,7 +117,6 @@ export const FriendProfile: React.FC = () => {
       const challengeIds = finalPoolIds.sort(() => 0.5 - Math.random()).slice(0, gameSize);
 
       // 2. Creation
-      // Fix: timestamp must be an ISO string to match SocialChallenge interface expectations.
       const challenge = await createChallenge({
         creatorId: currentUser.id,
         recipientId: friend.id,
@@ -127,7 +126,7 @@ export const FriendProfile: React.FC = () => {
         movieIds: challengeIds,
         status: 'ACTIVE',
         config: gameType === 'GUESS_THE_MOVIE' ? { timeLimitMins: timeLimit } : undefined,
-        timestamp: new Date().toISOString()
+        timestamp: Date.now()
       });
 
       if (challenge && challenge.id) {

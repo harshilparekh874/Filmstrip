@@ -22,8 +22,7 @@ export const SEED_USERS: User[] = [
     favoriteGenres: ['Sci-Fi', 'Drama'],
     // Fix: Added missing properties required by User interface
     isVerified: true,
-    // Fix: Type 'number' is not assignable to type 'string'. Using ISO string for consistency.
-    createdAt: new Date().toISOString()
+    createdAt: Date.now()
   },
   { 
     id: 'u3', 
@@ -36,8 +35,7 @@ export const SEED_USERS: User[] = [
     favoriteGenres: ['Action', 'Thriller'],
     // Fix: Added missing properties required by User interface
     isVerified: true,
-    // Fix: Type 'number' is not assignable to type 'string'. Using ISO string for consistency.
-    createdAt: new Date().toISOString()
+    createdAt: Date.now()
   },
 ];
 

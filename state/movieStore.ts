@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { Movie, UserMovieEntry, Recommendation, User } from '../core/types/models';
 import { movieRepo } from '../data/repositories/movieRepo';
 import { getRecommendations, findSimilarByGenre } from '../core/recommendations/engine';
-import { tmdbApi } from '../api/tmdbApi';
+import { tmdbApi } from '../data/api/tmdbApi';
 import { LetterboxdMovie } from '../core/utils/csvParser';
 import { useAuthStore } from './authStore';
 
@@ -63,9 +63,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         movieRepo.getFriendEntries(userId)
       ]);
 
-      const sortedUserEntries = userEntries.sort((a, b) => 
-        new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
-      );
+      const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       
       const hasChanged = currentState.userEntries.length !== sortedUserEntries.length || 
                         (sortedUserEntries.length > 0 && currentState.userEntries[0]?.timestamp !== sortedUserEntries[0]?.timestamp);
@@ -85,7 +83,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
       const lastThree = [...sortedUserEntries]
         .filter(e => e.status === 'WATCHED')
-        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .slice(0, 3);
 
       if (hasChanged || !isSilent) {
@@ -130,7 +128,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
   updateEntry: async (entry: UserMovieEntry) => {
     const state = get();
     const currentUser = useAuthStore.getState().user;
-    const updatedEntry = { ...entry, timestamp: entry.timestamp || new Date().toISOString() };
+    const updatedEntry = { ...entry, timestamp: entry.timestamp || Date.now() };
     
     let targetMovie = state.movies.find(m => m.id === updatedEntry.movieId) 
                    || state.searchResults.find(m => m.id === updatedEntry.movieId);
@@ -154,7 +152,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     if (existingIndex > -1) newEntries[existingIndex] = updatedEntry;
     else newEntries.unshift(updatedEntry);
     
-    newEntries.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+    newEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
     const lastThree = newEntries.filter(e => e.status === 'WATCHED').slice(0, 3);
     const newGrouped = lastThree.map(e => {
@@ -200,7 +198,8 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         
         if (match && !existingMovieIds.has(match.id)) {
           const parsedDate = new Date(lb.dateWatched);
-          const finalTimestamp = isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+          const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
+          const finalTimestamp = baseTime - (i * 1000);
 
           const entry: UserMovieEntry = {
             userId,
