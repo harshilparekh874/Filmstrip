@@ -33,17 +33,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: async () => {
     set({ isLoading: true });
     
-    // 1. Load the list of "Remembered" accounts for this device
     const remembered = await storage.getItem<User[]>('remembered_accounts') || [];
     set({ rememberedUsers: remembered });
 
-    // 2. Check for an active session
     const cachedUser = await storage.getItem<User>('auth_user_data');
     
     if (cachedUser) {
       set({ user: cachedUser });
       
-      // CRITICAL SYNC: Proactively fetch fresh user data and lists from "cloud"
       try {
         const users = await cloudClient.get(`/users`, { userId: cachedUser.id }) as User[];
         const freshUser = (Array.isArray(users) && users.length > 0) ? users[0] : null;
@@ -52,14 +49,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           await storage.setItem('auth_user_data', freshUser);
           set({ user: freshUser });
           
-          // Force immediate high-priority data fetch to restore watched list and social state
           await Promise.all([
             useMovieStore.getState().fetchData(freshUser.id, true),
             useSocialStore.getState().fetchSocial(freshUser.id, true)
           ]);
         }
       } catch (err) {
-        // Fail gracefully to cache if offline, but still try to sync data
         useMovieStore.getState().fetchData(cachedUser.id, true);
         useSocialStore.getState().fetchSocial(cachedUser.id, true);
       }
@@ -87,18 +82,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const users = await cloudClient.get(`/users`, { userId }) as User[];
         const user = users && users.length > 0 ? users[0] : null;
         if (user) {
-          // 1. Save active session
           await storage.setItem('auth_user_data', user);
           
-          // 2. Update remembered list (Device Trust)
           const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
           const filtered = currentRemembered.filter(u => u.id !== user.id);
-          const updatedRemembered = [user, ...filtered].slice(0, 5); // Keep last 5
+          const updatedRemembered = [user, ...filtered].slice(0, 5);
           await storage.setItem('remembered_accounts', updatedRemembered);
           
           set({ user, rememberedUsers: updatedRemembered });
 
-          // 3. Hard sync all data immediately
           await Promise.all([
             useMovieStore.getState().fetchData(user.id, true),
             useSocialStore.getState().fetchSocial(user.id, true)
@@ -114,6 +106,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signup: async (userData: any) => {
     const email = get().emailContext;
     const userId = get().userIdContext;
+    
+    if (!userId) {
+        throw new Error("Identity verification failed. Please try logging in again.");
+    }
+
     const { code, email: discardedEmail, ...profileFields } = userData;
 
     const finalData = { 
@@ -121,12 +118,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         id: userId,
         email: email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
-        createdAt: Date.now()
+        createdAt: Date.now() // Matches updated bigint schema
     };
 
     const user = await cloudClient.post('/auth/signup', finalData) as User;
     
-    // Save active session and add to remembered list
     await storage.setItem('auth_user_data', user);
     const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
     const updatedRemembered = [user, ...currentRemembered.filter(u => u.id !== user.id)].slice(0, 5);
@@ -142,7 +138,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updatedUser = await cloudClient.put(`/users/${currentUser.id}`, updates) as User;
     await storage.setItem('auth_user_data', updatedUser);
     
-    // Also update in remembered list
     const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
     const updatedRemembered = currentRemembered.map(u => u.id === updatedUser.id ? updatedUser : u);
     await storage.setItem('remembered_accounts', updatedRemembered);
