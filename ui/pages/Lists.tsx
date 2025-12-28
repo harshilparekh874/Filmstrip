@@ -22,8 +22,12 @@ export const Lists: React.FC = () => {
 
   const filteredEntries = userEntries.filter(e => e.status === (status as WatchStatus));
   
-  // Sort by timestamp DESC (most recent first)
-  const sortedEntries = [...filteredEntries].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  // Sort by timestamp DESC (most recent first) - Safe for string/number types
+  const sortedEntries = [...filteredEntries].sort((a, b) => {
+    const tA = new Date(a.timestamp || 0).getTime();
+    const tB = new Date(b.timestamp || 0).getTime();
+    return tB - tA;
+  });
 
   const items = sortedEntries
     .map(e => ({

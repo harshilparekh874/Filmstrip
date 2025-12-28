@@ -146,7 +146,11 @@ export const FriendProfile: React.FC = () => {
   const renderSection = (title: string, status: WatchStatus, icon: string) => {
     const filteredEntries = entries
       .filter(e => e.status === status)
-      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp || 0).getTime();
+        const timeB = new Date(b.timestamp || 0).getTime();
+        return timeB - timeA;
+      });
 
     if (filteredEntries.length === 0) return null;
 

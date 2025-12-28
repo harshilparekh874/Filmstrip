@@ -32,6 +32,11 @@ interface MovieState {
   clearSearch: () => void;
 }
 
+const getTime = (val: string | number | undefined): number => {
+  if (!val) return 0;
+  return new Date(val).getTime();
+};
+
 export const useMovieStore = create<MovieState>((set, get) => ({
   movies: [],
   userEntries: [],
@@ -63,7 +68,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         movieRepo.getFriendEntries(userId)
       ]);
 
-      const sortedUserEntries = userEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const sortedUserEntries = userEntries.sort((a, b) => getTime(b.timestamp) - getTime(a.timestamp));
       
       const hasChanged = currentState.userEntries.length !== sortedUserEntries.length || 
                         (sortedUserEntries.length > 0 && currentState.userEntries[0]?.timestamp !== sortedUserEntries[0]?.timestamp);
@@ -83,7 +88,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
 
       const lastThree = [...sortedUserEntries]
         .filter(e => e.status === 'WATCHED')
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        .sort((a, b) => getTime(b.timestamp) - getTime(a.timestamp))
         .slice(0, 3);
 
       if (hasChanged || !isSilent) {
@@ -128,7 +133,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
   updateEntry: async (entry: UserMovieEntry) => {
     const state = get();
     const currentUser = useAuthStore.getState().user;
-    const updatedEntry = { ...entry, timestamp: entry.timestamp || Date.now() };
+    const updatedEntry = { ...entry, timestamp: entry.timestamp || new Date().toISOString() };
     
     let targetMovie = state.movies.find(m => m.id === updatedEntry.movieId) 
                    || state.searchResults.find(m => m.id === updatedEntry.movieId);
@@ -152,7 +157,7 @@ export const useMovieStore = create<MovieState>((set, get) => ({
     if (existingIndex > -1) newEntries[existingIndex] = updatedEntry;
     else newEntries.unshift(updatedEntry);
     
-    newEntries.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    newEntries.sort((a, b) => getTime(b.timestamp) - getTime(a.timestamp));
 
     const lastThree = newEntries.filter(e => e.status === 'WATCHED').slice(0, 3);
     const newGrouped = lastThree.map(e => {
@@ -199,7 +204,8 @@ export const useMovieStore = create<MovieState>((set, get) => ({
         if (match && !existingMovieIds.has(match.id)) {
           const parsedDate = new Date(lb.dateWatched);
           const baseTime = isNaN(parsedDate.getTime()) ? Date.now() : parsedDate.getTime();
-          const finalTimestamp = baseTime - (i * 1000);
+          // Safe handling: if converting to string for backend consistency
+          const finalTimestamp = new Date(baseTime - (i * 1000)).toISOString();
 
           const entry: UserMovieEntry = {
             userId,

@@ -63,8 +63,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   sendOtp: async (email: string) => {
-    await cloudClient.post('/auth/otp', { email });
-    set({ emailContext: email });
+    try {
+      await cloudClient.post('/auth/otp', { email });
+      set({ emailContext: email });
+    } catch (err: any) {
+      if (err.message?.includes('429')) {
+        throw new Error("Too many requests. Please wait a minute before trying again.");
+      }
+      throw err;
+    }
   },
 
   verifyOtp: async (code: string) => {
@@ -107,28 +114,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const email = get().emailContext;
     const userId = get().userIdContext;
     
-    if (!userId) {
-        throw new Error("Identity verification failed. Please try logging in again.");
+    if (!userId || !email) {
+        console.error("Signup failed: Missing Context", { userId, email });
+        throw new Error("Session expired. Please verify your email again.");
     }
 
     const { code, email: discardedEmail, ...profileFields } = userData;
 
+    // Fix: Use ISO string for timestamps to be safe with standard Postgres columns
     const finalData = { 
         ...profileFields, 
         id: userId,
         email: email,
         name: `${userData.firstName} ${userData.lastName}`.trim(),
-        createdAt: Date.now() // Matches updated bigint schema
+        createdAt: new Date().toISOString()
     };
 
-    const user = await cloudClient.post('/auth/signup', finalData) as User;
-    
-    await storage.setItem('auth_user_data', user);
-    const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
-    const updatedRemembered = [user, ...currentRemembered.filter(u => u.id !== user.id)].slice(0, 5);
-    await storage.setItem('remembered_accounts', updatedRemembered);
+    try {
+        const user = await cloudClient.post('/auth/signup', finalData) as User;
+        
+        if (!user || !user.id) throw new Error("Registration failed.");
 
-    set({ user, rememberedUsers: updatedRemembered });
+        await storage.setItem('auth_user_data', user);
+        const currentRemembered = await storage.getItem<User[]>('remembered_accounts') || [];
+        const updatedRemembered = [user, ...currentRemembered.filter(u => u.id !== user.id)].slice(0, 5);
+        await storage.setItem('remembered_accounts', updatedRemembered);
+
+        set({ user, rememberedUsers: updatedRemembered });
+    } catch (err: any) {
+        console.error("Signup API Error:", err);
+        throw new Error(err.message || "Could not create account. Try a different username.");
+    }
   },
 
   updateUser: async (updates: Partial<User>) => {
